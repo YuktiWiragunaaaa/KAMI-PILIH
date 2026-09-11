@@ -1,0 +1,215 @@
+<title>Sortir AI</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --bg1:#eef0fa; --bg2:#dde0f2;
+  --ink:#0f172a; --ink-2:#1e293b; --muted:#475569; --faint:#64748b; --placeholder:#94a3b8;
+  --glass:rgba(255,255,255,.55); --glass-2:rgba(255,255,255,.45); --glass-input:rgba(255,255,255,.7); --glass-btn:rgba(255,255,255,.8);
+  --line:rgba(255,255,255,.85); --line-input:rgba(148,163,184,.35);
+  --track:rgba(148,163,184,.25); --chip:#eef2ff; --chip-ink:#4f46e5;
+  --accent-a:#4f7bff; --accent-b:#995cff; --ok:#22c55e;
+  --shadow:0 24px 60px rgba(26,38,102,.12);
+  --blob-blue:#4f7bff; --blob-pink:#ff6bd6; --blob-violet:#8a5cff; --blob-cyan:#5ce0ff;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg1:#0f1120; --bg2:#171a30;
+    --ink:#f1f5f9; --ink-2:#e2e8f0; --muted:#a5b0c4; --faint:#8b96ac; --placeholder:#6b7590;
+    --glass:rgba(255,255,255,.08); --glass-2:rgba(255,255,255,.06); --glass-input:rgba(255,255,255,.08); --glass-btn:rgba(255,255,255,.12);
+    --line:rgba(255,255,255,.18); --line-input:rgba(255,255,255,.14);
+    --track:rgba(255,255,255,.12); --chip:rgba(129,140,248,.2); --chip-ink:#a5b4fc;
+    --shadow:0 24px 60px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"]{
+  --bg1:#0f1120; --bg2:#171a30;
+  --ink:#f1f5f9; --ink-2:#e2e8f0; --muted:#a5b0c4; --faint:#8b96ac; --placeholder:#6b7590;
+  --glass:rgba(255,255,255,.08); --glass-2:rgba(255,255,255,.06); --glass-input:rgba(255,255,255,.08); --glass-btn:rgba(255,255,255,.12);
+  --line:rgba(255,255,255,.18); --line-input:rgba(255,255,255,.14);
+  --track:rgba(255,255,255,.12); --chip:rgba(129,140,248,.2); --chip-ink:#a5b4fc;
+  --shadow:0 24px 60px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;font-family:Inter,"Segoe UI",system-ui,sans-serif;color:var(--ink);
+  background:linear-gradient(135deg,var(--bg1),var(--bg2));overflow-x:hidden;
+  display:flex;align-items:flex-start;justify-content:center;padding:40px 20px}
+.blob{position:fixed;border-radius:50%;filter:blur(90px);opacity:.55;pointer-events:none;z-index:0}
+.b1{width:460px;height:460px;left:-140px;top:-120px;background:var(--blob-blue)}
+.b2{width:380px;height:380px;right:-80px;top:120px;background:var(--blob-pink)}
+.b3{width:420px;height:420px;left:-60px;bottom:-120px;background:var(--blob-violet)}
+.b4{width:340px;height:340px;right:-60px;bottom:-60px;background:var(--blob-cyan)}
+.card{position:relative;z-index:1;width:100%;max-width:680px;padding:36px;border-radius:28px;
+  background:var(--glass);border:1.5px solid var(--line);
+  -webkit-backdrop-filter:blur(40px);backdrop-filter:blur(40px);
+  box-shadow:var(--shadow),inset 0 1px 0 rgba(255,255,255,.9);
+  display:flex;flex-direction:column;gap:24px}
+.header{display:flex;align-items:center;gap:16px}
+.logo{width:56px;height:56px;border-radius:16px;display:grid;place-items:center;color:#fff;font-size:22px;font-weight:700;flex:none;
+  background:linear-gradient(135deg,var(--accent-a),var(--accent-b));box-shadow:0 8px 20px rgba(79,123,255,.4)}
+.titles{flex:1;min-width:0}
+.titles h1{margin:0;font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.titles p{margin:4px 0 0;font-size:14px;color:var(--muted)}
+.dots{display:flex;gap:8px}
+.dots span{width:12px;height:12px;border-radius:50%;display:block}
+.panel{padding:24px;border-radius:20px;background:var(--glass-2);border:1px solid var(--line);
+  -webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);display:flex;flex-direction:column;gap:18px}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--faint);text-transform:uppercase}
+.field{display:flex;flex-direction:column;gap:8px}
+.field>label{font-size:13px;font-weight:500;color:var(--ink-2)}
+.help{font-size:12px;color:var(--faint);margin:0}
+.input{display:flex;align-items:center;gap:8px;padding:12px 14px 12px 16px;border-radius:14px;
+  background:var(--glass-input);border:1px solid var(--line-input);
+  box-shadow:inset 0 2px 6px rgba(26,38,77,.06)}
+.input:focus-within{border-color:var(--accent-a);box-shadow:0 0 0 3px rgba(79,123,255,.2)}
+.input input,.input select{flex:1;min-width:0;border:0;background:transparent;font:inherit;font-size:14px;color:var(--ink);outline:none;padding:0}
+.input select{appearance:none;-webkit-appearance:none;cursor:pointer}
+.input .chev{color:var(--faint);pointer-events:none}
+.icon-btn{border:0;background:transparent;color:var(--faint);cursor:pointer;font:inherit;padding:0 2px;line-height:1}
+.row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.row .status{flex:1;min-width:200px;font-size:12px;color:var(--faint)}
+.row .status.empty{font-size:13px;color:var(--placeholder)}
+.btn{font:inherit;font-size:13px;font-weight:600;color:var(--ink-2);padding:10px 16px;border-radius:12px;cursor:pointer;
+  background:var(--glass-btn);border:1px solid var(--line);box-shadow:0 4px 12px rgba(26,38,102,.08);
+  display:inline-flex;align-items:center;gap:8px;transition:transform .12s}
+.btn:hover{transform:translateY(-1px)}
+.btn:focus-visible,.icon-btn:focus-visible,.step:focus-visible{outline:2px solid var(--accent-a);outline-offset:2px}
+.stepper{display:flex;gap:4px}
+.step{width:28px;height:28px;border:0;border-radius:8px;background:var(--chip);color:var(--chip-ink);font:inherit;font-weight:600;cursor:pointer}
+.status-row{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;color:var(--ink-2)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px rgba(34,197,94,.6)}
+.status-row .msg{flex:1}
+.pct{font-weight:600;color:var(--chip-ink);font-variant-numeric:tabular-nums}
+.track{height:10px;border-radius:99px;background:var(--track);overflow:hidden}
+.fill{height:100%;width:0;min-width:12px;border-radius:99px;background:linear-gradient(90deg,var(--accent-a),var(--accent-b));transition:width .4s}
+.actions{display:flex;justify-content:flex-end;align-items:center;gap:12px}
+.btn-ghost{font:inherit;font-size:14px;font-weight:600;padding:14px 24px;border-radius:14px;cursor:pointer;color:var(--ink-2);
+  background:rgba(255,255,255,.4);border:1px solid var(--line)}
+.btn-ghost:disabled{color:var(--placeholder);cursor:not-allowed}
+.btn-primary{font:inherit;font-size:14px;font-weight:600;color:#fff;padding:14px 28px;border-radius:14px;border:0;cursor:pointer;
+  background:linear-gradient(90deg,var(--accent-a),var(--accent-b));
+  box-shadow:0 10px 24px rgba(79,123,255,.45),inset 0 1px 0 rgba(255,255,255,.5);transition:transform .12s,filter .12s}
+.btn-primary:hover{transform:translateY(-1px);filter:brightness(1.05)}
+.btn-primary:disabled{opacity:.6;cursor:not-allowed;transform:none}
+.btn-primary:focus-visible,.btn-ghost:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@media (max-width:520px){.card{padding:24px}.panel{padding:18px}.titles h1{font-size:24px}}
+</style>
+
+<div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div>
+
+<main class="card">
+  <header class="header">
+    <div class="logo" aria-hidden="true">✦</div>
+    <div class="titles">
+      <h1>Sortir AI</h1>
+      <p>Pilih foto terbaik lalu buka hasilnya di editor pilihan</p>
+    </div>
+    <div class="dots" aria-hidden="true"><span style="background:#ff5f57"></span><span style="background:#febc2e"></span><span style="background:#28c840"></span></div>
+  </header>
+
+  <section class="panel" aria-labelledby="cfg">
+    <div class="eyebrow" id="cfg">Konfigurasi</div>
+
+    <div class="field">
+      <label for="apikey">API Key Gemini</label>
+      <div class="input">
+        <input id="apikey" type="password" value="AIzaSyD-contoh-key-1234567890abcdefghij" autocomplete="off" spellcheck="false">
+        <button class="icon-btn" id="eye" type="button" aria-label="Tampilkan API key">👁</button>
+      </div>
+      <div class="row">
+        <button class="btn" type="button" id="saveKey">🔑 Login / Simpan API</button>
+        <span class="status" id="keyStatus">Sesi dihapus. API key tetap tersedia di form dan belum tersimpan.</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="model">Model Gemini</label>
+      <div class="input">
+        <select id="model">
+          <option>gemini-3.5-flash-lite</option>
+          <option>gemini-3.5-flash</option>
+          <option>gemini-3.5-pro</option>
+          <option>gemini-2.5-flash</option>
+          <option>gemini-2.5-pro</option>
+        </select>
+        <span class="chev">⌄</span>
+      </div>
+      <p class="help">30 model vision tersedia dari API Gemini.</p>
+    </div>
+
+    <div class="field">
+      <label for="target">Target foto Excellent</label>
+      <div class="input">
+        <input id="target" type="number" min="1" value="15">
+        <div class="stepper">
+          <button class="step" type="button" data-d="-1" aria-label="Kurangi">−</button>
+          <button class="step" type="button" data-d="1" aria-label="Tambah">+</button>
+        </div>
+      </div>
+      <p class="help">Jumlah tidak boleh melebihi total foto jpeg ataupun raw di folder.</p>
+    </div>
+
+    <div class="field">
+      <label>Folder foto</label>
+      <div class="row">
+        <button class="btn" type="button" id="pickFolder">📁 Pilih folder</button>
+        <input type="file" id="folderInput" webkitdirectory directory hidden>
+        <span class="status empty" id="folderStatus">Belum ada folder dipilih</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="editor">Aplikasi editing</label>
+      <div class="input">
+        <select id="editor">
+          <option>Capture One</option>
+          <option>Adobe Lightroom Classic</option>
+          <option>Adobe Photoshop</option>
+          <option>DaVinci Resolve</option>
+        </select>
+        <span class="chev">⌄</span>
+      </div>
+      <p class="help">4 editor terdeteksi di Windows.</p>
+    </div>
+  </section>
+
+  <section class="panel" style="gap:14px" aria-live="polite">
+    <div class="status-row">
+      <span class="dot" id="dot"></span>
+      <span class="msg" id="msg">Siap memulai.</span>
+      <span class="pct" id="pct">0%</span>
+    </div>
+    <div class="track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><div class="fill" id="fill"></div></div>
+    <p class="help" id="bytes">Data salinan AI: 0 B</p>
+  </section>
+
+  <div class="actions">
+    <button class="btn-ghost" type="button" id="cancel" disabled>Batalkan</button>
+    <button class="btn-primary" type="button" id="start">✦ Mulai sortir</button>
+  </div>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+$('eye').onclick=()=>{const i=$('apikey');i.type=i.type==='password'?'text':'password';};
+$('saveKey').onclick=()=>{$('keyStatus').textContent='API key tersimpan untuk sesi ini.';};
+document.querySelectorAll('.step').forEach(b=>b.onclick=()=>{const t=$('target');t.value=Math.max(1,(+t.value||0)+ +b.dataset.d);});
+$('pickFolder').onclick=()=>$('folderInput').click();
+$('folderInput').onchange=e=>{
+  const f=e.target.files;const n=[...f].filter(x=>/\.(jpe?g|cr[23]|nef|arw|raf|dng)$/i.test(x.name)).length;
+  const s=$('folderStatus');s.classList.remove('empty');
+  s.textContent=f.length?`${f[0].webkitRelativePath.split('/')[0]} — ${n} foto`:'Belum ada folder dipilih';
+};
+let timer=null;
+const fmt=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB';
+$('start').onclick=()=>{
+  let p=0,bytes=0;$('start').disabled=true;$('cancel').disabled=false;
+  timer=setInterval(()=>{p=Math.min(100,p+Math.random()*6);bytes+=Math.floor(Math.random()*180000);
+    $('fill').style.width=p+'%';$('pct').textContent=Math.round(p)+'%';$('bar').setAttribute('aria-valuenow',Math.round(p));
+    $('bytes').textContent='Data salinan AI: '+fmt(bytes);
+    $('msg').textContent=p<100?`Menganalisis foto… (${Math.round(p)}%)`:'Selesai. Membuka hasil di '+$('editor').value+'.';
+    if(p>=100){clearInterval(timer);$('start').disabled=false;$('cancel').disabled=true;}
+  },300);
+};
+$('cancel').onclick=()=>{clearInterval(timer);$('msg').textContent='Dibatalkan.';$('start').disabled=false;$('cancel').disabled=true;};
+</script>
