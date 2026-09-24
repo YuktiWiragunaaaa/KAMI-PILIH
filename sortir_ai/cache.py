@@ -4,6 +4,7 @@ Isi:
 - hasil    : penilaian Gemini per foto (dipakai ulang -> tidak bayar token dua kali)
 - fitur    : ukuran lokal per foto (ketajaman, wajah, ...) untuk data latihan
 - final    : hasil babak final (adu kandidat) + tanda kandidatnya
+- visual   : sidik jari CLIP per foto (base64 float16), untuk selera lanjutan
 - prediksi : status yang terakhir ditulis aplikasi, untuk mendeteksi koreksimu di editor
 """
 
@@ -22,6 +23,7 @@ class CacheHasil:
         self.final = {}
         self.prediksi = {}
         self.hasil_semua = {}
+        self.visual = {}
         try:
             with open(self.path, "r", encoding="utf-8") as f:
                 isi = json.load(f)
@@ -30,6 +32,7 @@ class CacheHasil:
         # Prediksi lama tetap berguna untuk belajar walau model/prompt berganti.
         self.prediksi = isi.get("prediksi", {})
         self.fitur = isi.get("fitur", {})
+        self.visual = isi.get("visual", {})  # tidak bergantung model/prompt Gemini
         # Nilai Gemini dari versi model/prompt mana pun: tetap berguna sebagai data latihan selera.
         self.hasil_semua = isi.get("hasil", {})
         if isi.get("tanda") == tanda:
@@ -50,5 +53,5 @@ class CacheHasil:
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"tanda": self.tanda, "hasil": self.data, "fitur": self.fitur,
-                       "final": self.final, "prediksi": self.prediksi}, f)
+                       "final": self.final, "prediksi": self.prediksi, "visual": self.visual}, f)
         os.replace(tmp, self.path)

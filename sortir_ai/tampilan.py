@@ -166,6 +166,8 @@ class Sinyal(QObject):
     editor_terdeteksi = Signal(dict)
     model_tersedia = Signal(list)
     editor_dibuka = Signal(str, bool)
+    unduh_progres = Signal(int)
+    unduh_selesai = Signal(str)  # "" = sukses, selain itu pesan galat
 
 
 class PekerjaDeteksiEditor(QThread):
@@ -401,6 +403,30 @@ class JendelaSortir(QMainWindow):
         self.field_editor = Field("Aplikasi editing", self.pilihan_editor, "Mencari editor yang terpasang di Windows...")
         konf.addWidget(self.field_editor)
 
+        # Selera visual (model lanjutan): tidur sampai terbukti lebih akurat, lalu bisa diaktifkan
+        baris_selera = QWidget()
+        tata_selera = QHBoxLayout(baris_selera)
+        tata_selera.setContentsMargins(0, 0, 0, 0)
+        tata_selera.setSpacing(10)
+        self.tombol_visual = QPushButton("Nonaktif")
+        self.tombol_visual.setCheckable(True)
+        self.tombol_visual.setObjectName("Ghost")
+        self.tombol_visual.clicked.connect(self._ubah_visual)
+        self.tombol_selera_baru = QPushButton("Mulai selera baru…")
+        self.tombol_selera_baru.setObjectName("Ghost")
+        self.tombol_selera_baru.setToolTip("Untuk perubahan gaya mendadak. Data lama disimpan di 1 slot arsip.")
+        self.tombol_selera_baru.clicked.connect(self._selera_baru)
+        self.tombol_unduh_visual = QPushButton("Unduh model visual (89 MB)")
+        self.tombol_unduh_visual.setObjectName("Ghost")
+        self.tombol_unduh_visual.clicked.connect(self._unduh_visual)
+        self.tombol_unduh_visual.hide()
+        tata_selera.addWidget(self.tombol_unduh_visual)
+        tata_selera.addWidget(self.tombol_visual)
+        tata_selera.addWidget(self.tombol_selera_baru)
+        tata_selera.addStretch(1)
+        self.field_selera = Field("Selera visual (lanjutan)", baris_selera, "Memeriksa data selera...")
+        konf.addWidget(self.field_selera)
+
         # Panel status
         panel_status = QFrame()
         panel_status.setObjectName("Panel")
@@ -492,6 +518,8 @@ class JendelaSortir(QMainWindow):
         s.selesai.connect(self._tandai_selesai)
         s.editor_terdeteksi.connect(self._pasang_editor)
         s.model_tersedia.connect(self._pasang_model)
+        s.unduh_progres.connect(lambda p: self.tombol_unduh_visual.setText(f"Mengunduh… {p}%"))
+        s.unduh_selesai.connect(self._unduh_visual_selesai)
         s.editor_dibuka.connect(self._editor_dibuka)
 
     def _atur_progress(self, persen):
@@ -622,6 +650,7 @@ class JendelaSortir(QMainWindow):
         elif folder:
             self.folder = os.path.normpath(folder)  # tetap jadi titik awal dialog, tanpa dipilih
         self.pilihan_model.activated.connect(self._simpan_model)
+        self._perbarui_selera()
         self.pilihan_editor.activated.connect(
             lambda _i: self.pengaturan.setValue("editor", self.pilihan_editor.currentText()))
 
@@ -680,7 +709,8 @@ class JendelaSortir(QMainWindow):
     # ---- proses -----------------------------------------------------------
     def _atur_kontrol(self, sedang_proses):
         for w in (self.pilihan_model, self.pilihan_editor, self.entry_target,
-                  self.tombol_folder, self.tombol_login, self.stepper, self.tombol_belajar):
+                  self.tombol_folder, self.tombol_login, self.stepper, self.tombol_belajar,
+                  self.tombol_selera_baru):
             w.setEnabled(not sedang_proses)
         self.entry_api.setEnabled(not sedang_proses)
         self.tombol_mulai.setEnabled(not sedang_proses)
@@ -688,6 +718,9 @@ class JendelaSortir(QMainWindow):
         self.tombol_editor.setEnabled(not sedang_proses and bool(self.editor_terdeteksi))
         if not sedang_proses:
             self.pilihan_editor.setEnabled(bool(self.editor_terdeteksi))
+            self._perbarui_selera()
+        else:
+            self.tombol_visual.setEnabled(False)
 
     def _mulai(self):
         api_key = self.entry_api.text().strip()
@@ -720,7 +753,8 @@ class JendelaSortir(QMainWindow):
         self.label_data.setText("Token: belum ada panggilan API")
         self.pengaturan.setValue("target", target)
         self._simpan_model()
-        self.penyortir.mulai(self.folder, api_key, target, self.pilihan_model.currentText())
+        self.penyortir.mulai(self.folder, api_key, target, self.pilihan_model.currentText(),
+                             pakai_visual=self._visual_aktif())
 
     def _batalkan(self):
         if not self.penyortir.sedang_berjalan:
@@ -794,6 +828,121 @@ class JendelaSortir(QMainWindow):
             f"{info_selera}\n\n"
             "Catatan: di Lightroom, pastikan metadata disimpan ke file "
             "(Ctrl+S, atau aktifkan 'Automatically write changes into XMP').")
+        self._perbarui_selera(tawarkan=True)
+
+    # ---- selera visual ---------------------------------------------------
+    def _visual_aktif(self):
+        return self.pengaturan.value("visual_aktif", False, bool)
+
+    def _perbarui_selera(self, tawarkan=False):
+        """Perbarui sakelar + teks bantuan; tampilkan popup sekali saat model visual siap."""
+        from . import selera, visual
+        if not visual.tersedia():
+            self.tombol_visual.setEnabled(False)
+            if not visual.onnxruntime_ada():
+                self.tombol_unduh_visual.hide()
+                self.field_selera.help.setText(
+                    "Library onnxruntime belum terpasang. Tutup aplikasi lalu buka lewat "
+                    "'Buka Sortir AI.bat' untuk memasangnya otomatis.")
+            else:
+                self.tombol_unduh_visual.show()
+                self.field_selera.help.setText(
+                    "Model visual belum ada di komputer ini. Unduh sekali (89 MB) agar sidik jari "
+                    "mulai dikumpulkan; tanpa ini aplikasi tetap berjalan normal.")
+            return
+        self.tombol_unduh_visual.hide()
+        try:
+            uji = selera.uji_visual()
+        except Exception as error:
+            print(f"Uji selera visual gagal: {error}")
+            uji = {"siap": False, "jumlah": 0, "lebih_baik_persen": None}
+        aktif = self._visual_aktif()
+        self.tombol_visual.setChecked(aktif)
+        self.tombol_visual.setText("Aktif" if aktif else "Nonaktif")
+        self.tombol_visual.setEnabled(aktif or uji["siap"])
+        if aktif:
+            teks = f"Aktif: urutan Excellent memakai selera visual ({uji['jumlah']} foto)."
+        elif uji["siap"]:
+            teks = (f"Siap diaktifkan: tebakan {uji['lebih_baik_persen']}% lebih akurat "
+                    "daripada model sederhana pada datamu.")
+        elif uji["jumlah"] < selera.MIN_DATA_VISUAL:
+            teks = (f"Tidur: mengumpulkan sidik jari ({uji['jumlah']}/{selera.MIN_DATA_VISUAL} foto "
+                    "ber-review). Hasil sortir belum terpengaruh.")
+        else:
+            teks = ("Tidur: data cukup, tetapi belum lebih akurat daripada model sederhana. "
+                    "Diuji ulang tiap kali koreksi dicatat.")
+        self.field_selera.help.setText(teks)
+
+        # Popup sekali; ditawarkan lagi setelah +500 foto bila tadi memilih "Nanti".
+        ditawarkan = int(self.pengaturan.value("visual_ditawarkan", 0) or 0)
+        if tawarkan and uji["siap"] and not aktif and (not ditawarkan or uji["jumlah"] >= ditawarkan + 500):
+            self.pengaturan.setValue("visual_ditawarkan", uji["jumlah"])
+            kotak = QMessageBox(self)
+            kotak.setWindowTitle("Selera visual siap")
+            kotak.setText(f"Model selera visual menebak pilihanmu {uji['lebih_baik_persen']}% lebih akurat "
+                          f"daripada model sederhana ({uji['jumlah']} foto).\n\n"
+                          "Aktifkan sekarang? Bisa dimatikan kapan saja lewat sakelar Selera visual.")
+            tombol_ya = kotak.addButton("Aktifkan", QMessageBox.ButtonRole.AcceptRole)
+            kotak.addButton("Nanti", QMessageBox.ButtonRole.RejectRole)
+            kotak.exec()
+            if kotak.clickedButton() is tombol_ya:
+                self.pengaturan.setValue("visual_aktif", True)
+                self._perbarui_selera()
+
+    def _unduh_visual(self):
+        from . import visual
+        jawab = QMessageBox.question(
+            self, "Unduh model visual",
+            "Unduh model CLIP (89 MB) dari Hugging Face (Xenova/clip-vit-base-patch32)?\n\n"
+            f"Disimpan di: {visual.FILE_MODEL}")
+        if jawab != QMessageBox.StandardButton.Yes:
+            return
+        self.tombol_unduh_visual.setEnabled(False)
+
+        def kerja():
+            try:
+                visual.unduh_model(self.sinyal.unduh_progres.emit)
+                self.sinyal.unduh_selesai.emit("")
+            except Exception as error:
+                self.sinyal.unduh_selesai.emit(f"{type(error).__name__}: {error}")
+
+        threading.Thread(target=kerja, daemon=True).start()
+
+    def _unduh_visual_selesai(self, galat):
+        self.tombol_unduh_visual.setEnabled(True)
+        self.tombol_unduh_visual.setText("Unduh model visual (89 MB)")
+        if galat:
+            QMessageBox.critical(self, "Unduhan gagal", f"Model visual gagal diunduh.\n\n{galat}")
+        self._perbarui_selera()
+
+    def _ubah_visual(self, nyala):
+        self.pengaturan.setValue("visual_aktif", bool(nyala))
+        self._perbarui_selera()
+
+    def _selera_baru(self):
+        from . import belajar
+        kotak = QMessageBox(self)
+        kotak.setWindowTitle("Selera baru")
+        kotak.setText("Mulai belajar selera dari nol?\n\n"
+                      "Data koreksi sekarang dipindah ke arsip (1 slot; arsip sebelumnya diganti). "
+                      "Model belajar lagi dari koreksi berikutnya.")
+        tombol_baru = kotak.addButton("Mulai selera baru", QMessageBox.ButtonRole.DestructiveRole)
+        tombol_tukar = None
+        if belajar.ada_arsip():
+            tombol_tukar = kotak.addButton("Tukar dengan arsip", QMessageBox.ButtonRole.ActionRole)
+        kotak.addButton("Batal", QMessageBox.ButtonRole.RejectRole)
+        kotak.exec()
+        dipilih = kotak.clickedButton()
+        if dipilih is tombol_baru:
+            jumlah = belajar.mulai_selera_baru()
+            self.pengaturan.setValue("visual_aktif", False)
+            self.pengaturan.setValue("visual_ditawarkan", 0)
+            QMessageBox.information(self, "Selera baru", f"{jumlah} foto dipindah ke arsip. Mulai dari nol.")
+        elif tombol_tukar is not None and dipilih is tombol_tukar:
+            jumlah = belajar.pulihkan_selera_lama()
+            QMessageBox.information(self, "Selera ditukar",
+                                    f"{jumlah} foto dari arsip dipakai lagi; data sebelumnya kini jadi arsip.")
+        self._perbarui_selera()
 
     def _editor_dibuka(self, pesan, sukses):
         self.label_status.setText(pesan)

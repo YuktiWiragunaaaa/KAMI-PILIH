@@ -1,71 +1,215 @@
 # Sortir AI
 
-Aplikasi desktop Windows untuk memilih foto terbaik dari satu sesi pemotretan, lalu membuka hasilnya di editor (Capture One, Lightroom, Photoshop). Rating ditulis ke metadata XMP, jadi langsung terbaca di editor.
+**Aplikasi yang membantu fotografer memilih foto terbaik dari ratusan foto satu sesi secara otomatis.**
 
-## Menjalankan
+Dari satu sesi, misalnya 800 foto, Sortir AI memberi setiap foto salah satu dari tiga label:
 
-Klik dua kali **`Buka Sortir AI.bat`**. Saat pertama kali dijalankan, aplikasi menyiapkan Python 3.12 dan library-nya di `.venv` (perlu beberapa menit).
+- ⭐ **Excellent**: foto terbaik, layak masuk album.
+- 👍 **Good**: foto bagus, sebagai pelengkap.
+- 👎 **Bad**: blur, mata terpejam, kembar, atau momennya kurang.
 
-Atau lewat terminal:
+Label ini langsung terbaca di **Capture One, Lightroom, atau Photoshop**, jadi Anda cukup membuka editor dan mulai dari foto Excellent.
+
+---
+
+## Syarat
+
+| Kebutuhan | Keterangan |
+|---|---|
+| **Windows 10 atau 11 (64-bit)** | Aplikasi memakai fitur Windows untuk menyimpan login dan mendeteksi editor |
+| **Python 3.12** | Harus versi 3.12, bukan 3.13 atau yang lebih baru, karena beberapa library belum mendukungnya |
+| **Ruang kosong ±1,5 GB di C:** | Sekitar 1,1 GB untuk library Python, ditambah 89 MB untuk model selera visual |
+| **Internet** | Untuk penilaian Gemini dan pemasangan pertama kali |
+| **API key Gemini** | Gratis dibuat di [Google AI Studio](https://aistudio.google.com) |
+| **Editor foto** *(opsional)* | Capture One, Lightroom, atau Photoshop |
+
+### Memasang Python 3.12
+
+1. Buka [python.org/downloads/windows](https://www.python.org/downloads/windows/), lalu unduh **Windows installer (64-bit)** untuk versi **3.12.x** yang terbaru.
+2. Jalankan installer, lalu **centang "Add python.exe to PATH"** di layar pertama.
+3. Klik **Install Now**.
+4. Untuk mengecek, buka Command Prompt dan ketik `py -3.12 --version`. Hasilnya harus `Python 3.12.x`.
+
+---
+
+## Cara memakai
+
+### Pertama kali
+
+1. Klik dua kali **`Buka Sortir AI.bat`**. File ini otomatis membuat "venv" (folder `.venv`, tempat khusus untuk library aplikasi supaya tidak bercampur dengan program lain) dan memasang semua library yang dibutuhkan. Proses ini butuh **5–15 menit**, tergantung kecepatan internet. Selanjutnya aplikasi langsung terbuka.
+2. Masukkan **API key Gemini**, lalu klik **Login**. Key disimpan aman dan terenkripsi oleh Windows.
+
+<details>
+<summary>Membuat venv secara manual (kalau file .bat gagal)</summary>
+
+Buka Command Prompt di folder aplikasi (ketik `cmd` di address bar File Explorer lalu tekan Enter), kemudian jalankan perintah berikut satu per satu:
+
+```bash
+py -3.12 -m venv .venv
+```
+
+```bash
+.venv\Scripts\python.exe -m pip install --upgrade pip
+```
+
+```bash
+.venv\Scripts\pip install -r requirements.txt
+```
+
+Setelah itu, aplikasi bisa dibuka lewat `Buka Sortir AI.bat` atau dengan perintah:
 
 ```bash
 .venv\Scripts\python.exe -m sortir_ai
 ```
 
-Tes:
+**Kalau muncul masalah:**
+- `py` tidak dikenali: Python belum terpasang, atau "Add to PATH" tidak dicentang. Pasang ulang Python.
+- Error saat memasang `mediapipe` atau `onnxruntime`: pastikan venv dibuat dengan Python **3.12**. Hapus folder `.venv`, lalu ulangi dari langkah pertama.
+- Ingin memulai dari awal: hapus folder `.venv`, lalu jalankan `.bat` lagi.
+
+</details>
+
+### Setiap sesi foto
+
+1. **Pilih folder** berisi foto sesi tersebut.
+2. Atur **jumlah foto Excellent** yang diinginkan, misalnya 30.
+3. Klik **Mulai sortir** dan tunggu sampai selesai.
+4. Klik **Buka editor**. Foto sudah berlabel.
+
+Aplikasi mengingat pilihan terakhir Anda (model, jumlah foto, folder, dan editor), jadi tidak perlu diatur ulang setiap kali.
+
+---
+
+## Aplikasi bisa belajar selera Anda 🎯
+
+Semakin sering dipakai, pilihan aplikasi semakin mirip dengan pilihan Anda sendiri.
+
+**Caranya:**
+
+1. Setelah sortir, buka editor dan **ubah label** yang menurut Anda kurang tepat.
+2. Simpan metadata ke file (di Lightroom: Ctrl+S).
+3. Kembali ke Sortir AI dan klik **📚 Pelajari koreksi**.
+
+Aplikasi mencatat apa yang Anda ubah dan belajar darinya. Tidak ada biaya tambahan.
+
+**Kapan mulai terasa?**
+
+| Jumlah foto yang sudah Anda koreksi | Hasilnya |
+|---|---|
+| Kurang dari 60 | Belum berpengaruh |
+| 60–400 | Mulai menyesuaikan, perlahan |
+| 400 ke atas | Berpengaruh penuh |
+| Sekitar 1.000 (±3–5 sesi) | Paling stabil, dan "selera visual" bisa diaktifkan |
+
+Pembelajaran selera hanya **mengubah urutan foto terbaik**. Foto yang jelas jelek tidak akan naik menjadi Excellent hanya karena selera.
+
+### Selera visual (tingkat lanjut)
+
+Pembelajaran biasa hanya melihat angka penilaian, seperti skor momen, ekspresi, dan ketajaman. **Selera visual** juga melihat *tampilan* foto: warna, gaya, pose, dan suasana.
+
+- Fitur ini **tidur** dulu. Selama tidur, aplikasi diam-diam mengumpulkan data tanpa mengubah hasil sortir.
+- Setelah data cukup dan fitur ini terbukti lebih akurat, muncul pesan dengan tombol **Aktifkan**.
+- Sesudah itu, fitur bisa dinyalakan atau dimatikan kapan saja lewat sakelar **Selera visual**.
+
+### Kalau selera Anda berubah
+
+- **Berubah pelan-pelan:** tidak perlu melakukan apa pun. Koreksi terbaru selalu dihitung lebih penting daripada koreksi lama.
+- **Berubah total:** klik **Mulai selera baru…**. Selera lama disimpan sebagai cadangan, dan bisa dikembalikan lewat **Tukar dengan arsip**.
+
+---
+
+## Pertanyaan umum
+
+**Berapa biayanya?**
+Hanya biaya pemakaian Gemini. Aplikasi menghemat biaya dengan cara:
+- membuang foto yang jelas gagal sebelum dikirim ke Gemini, misalnya foto blur atau kembar;
+- tidak menilai ulang foto yang sudah pernah dinilai.
+
+**Muncul error "503" atau "high demand"?**
+Server Google sedang penuh, bukan masalah di komputer Anda. Aplikasi otomatis mencoba lagi dan pindah ke model cadangan. Kalau tetap gagal, tunggu sebentar lalu klik Mulai sortir lagi. Foto yang sudah dinilai tidak dihitung ulang.
+
+**Model Gemini mana yang sebaiknya dipilih?**
+Model **Flash Lite** paling hemat dan jarang penuh. Hasilnya bagus untuk menyaring foto yang blur, bermata terpejam, atau kembar. Untuk menilai ekspresi yang halus, model ini sedikit kurang tajam, dan di sinilah pembelajaran selera membantu.
+
+**Berapa ruang penyimpanan yang dipakai?**
+Paling banyak sekitar **115 MB** di drive C:, dan tidak akan terus bertambah. Rinciannya:
+- model selera visual 89 MB;
+- data belajar maksimal 5.000 foto terbaru, sekitar 12 MB;
+- satu cadangan selera lama, sekitar 12 MB.
+
+Foto asli Anda **tidak disalin**.
+
+**Apakah foto saya diubah?**
+Tidak. Aplikasi hanya menambahkan label (rating). Gambar tidak diubah sedikit pun.
+
+**Bagaimana memakai aplikasi di komputer lain?**
+1. Salin folder aplikasi, lalu jalankan `Buka Sortir AI.bat`. Library yang dibutuhkan dipasang otomatis.
+2. Untuk selera visual, klik **Unduh model visual (89 MB)** di aplikasi.
+3. Supaya selera Anda ikut pindah, salin juga file `%APPDATA%\SortirAI\data_latihan.json` dari komputer lama.
+
+**Bolehkah folder sesi lama dihapus?**
+Boleh, **setelah** Anda mengklik "Pelajari koreksi" untuk sesi tersebut. Data belajarnya sudah tersimpan terpisah.
+
+---
+
+## Untuk pengembang
+
+<details>
+<summary>Detail teknis (klik untuk membuka)</summary>
+
+### Menjalankan dan tes
+
+```bash
+.venv\Scripts\python.exe -m sortir_ai
+```
 
 ```bash
 .venv\Scripts\python.exe -m pytest -q tests
 ```
 
-## Alur sortir
+### Alur sortir
 
-1. **Analisis lokal (tanpa token):** ketajaman, exposure, deteksi wajah (mata terpejam, senyum) dengan MediaPipe, dan pengelompokan foto burst yang mirip.
-2. **Saring lokal:** foto yang jelas gagal dan file kembar tidak dikirim ke Gemini.
-3. **Gemini menilai:** momen, ekspresi, gestur, teknis (0–10), skor 0–100, dan kode cacat. Hasilnya di-cache per folder (`.sortir_ai_cache.json`), jadi token tidak terpakai dua kali.
-4. **Babak final:** kandidat teratas diadu ulang supaya Excellent berisi momen terkuat.
-5. **Selera pribadi:** urutan kandidat disesuaikan dengan kebiasaan koreksi Anda (lihat di bawah).
-6. **Tulis metadata:** Excellent / Good / Bad ditulis ke XMP.
+1. Analisis lokal: ketajaman, exposure, dHash, dan wajah dengan MediaPipe (mata terpejam, senyum).
+2. Saring lokal: file kembar, blur berat, dan burst dipangkas ke 8 frame tertajam.
+3. Sidik jari CLIP untuk foto yang lolos (kalau model tersedia).
+4. Gemini menilai momen, ekspresi, gestur, teknis (0–10), skor 0–100, dan kode cacat. Hasilnya di-cache per folder di `.sortir_ai_cache.json`.
+5. Babak final: kandidat teratas diadu ulang.
+6. Bonus selera (±10 poin, hanya untuk urutan kandidat), lalu status ditulis ke XMP.
 
-## Model Gemini
+### Gemini
 
-- Daftar model di dropdown diambil langsung dari Google sesuai API key Anda.
-- Kalau server model sedang penuh (error 503), aplikasi mencoba ulang lalu otomatis pindah ke model cadangan: `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` → `gemini-flash-lite-latest`.
-- Model 2.5 tidak dipakai sebagai cadangan karena tidak bisa dipakai dengan key ini.
+- Daftar model diambil dari `models.list()` sesuai API key.
+- Kalau terjadi 503 setelah 4 kali retry, aplikasi pindah ke model cadangan: `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` → `gemini-flash-lite-latest`. Model 2.5 tidak tersedia untuk key ini.
 
-## Selera pribadi (belajar dari koreksi)
+### Model selera (`selera.py`)
 
-Setelah sortir, ubah rating di editor sesuai selera Anda, simpan metadata ke file, lalu tekan **Pelajari koreksi**. Aplikasi juga otomatis mencatat koreksi saat folder yang sama disortir ulang.
+- **Sederhana:** ridge regression berbobot (numpy) atas 14 kolom, yaitu nilai Gemini ditambah fitur lokal. Aktif mulai 60 baris, kepercayaan penuh di 400.
+- **Visual:** 14 kolom ditambah embedding CLIP 512 dimensi, dengan λ lebih besar. Diuji mulai 1.000 baris dengan 5-fold CV terhadap model sederhana pada baris yang sama. Dinyatakan siap kalau galatnya minimal 3% lebih kecil.
+- Bobot waktu memakai paruh waktu 180 hari. Target: Bad=0, Good=1, Excellent=2.
 
-- Data latihan disimpan di `%APPDATA%\SortirAI\data_latihan.json` (sekitar 1 MB per sesi).
-- Model di `sortir_ai/selera.py` adalah regresi ridge kecil (numpy) atas skor Gemini dan ukuran lokal. Model ini tidak melihat foto. Ia belajar aspek mana yang Anda prioritaskan.
-- Bonus maksimal **±10 poin**, dan hanya mengubah urutan kandidat Excellent. Batas Good/Bad tidak diubah.
-- Mulai aktif di **60 foto** koreksi, lalu pengaruhnya penuh di **400 foto**. Hasil paling stabil tercapai di sekitar 1.000–2.000 foto dari beberapa jenis sesi, kira-kira 3–5 sesi.
-- Hanya foto yang sudah dinilai Gemini yang dihitung. Foto yang dibuang oleh saringan lokal tidak ikut.
+### Data
 
-## Pilihan tersimpan
+| Lokasi | Isi |
+|---|---|
+| `%APPDATA%\SortirAI\data_latihan.json` | Data koreksi, maksimal 5.000 baris terbaru |
+| `%APPDATA%\SortirAI\data_latihan_arsip.json` | 1 slot arsip selera lama |
+| `%APPDATA%\SortirAI\clip_vision.onnx` | CLIP ViT-B/32 quantized, 89.117.001 byte, dari HF `Xenova/clip-vit-base-patch32` |
+| `HKCU\Software\SortirAI` | Pilihan UI terakhir dan status selera visual |
+| `<folder foto>\.sortir_ai_cache.json` | Nilai Gemini, fitur, dan sidik jari per foto |
 
-Model, target Excellent, folder terakhir, dan aplikasi editing disimpan di registry Windows (`HKCU\Software\SortirAI`) dan dipulihkan saat aplikasi dibuka. Dialog "Pilih folder" terbuka di folder induk sesi terakhir.
-
-## Rencana: model selera lanjutan (ditunda)
-
-Sidik jari visual dengan **CLIP**. Model ini bisa menangkap selera yang tidak ada di kolom skor, seperti warna, gaya, dan suasana.
-
-- **Kapan dipasang:** setelah sekitar 5 sesi dikoreksi (1.000+ foto), dan hanya kalau persentase "setuju" di Pelajari koreksi mentok di angka rendah.
-- **Bentuk:** fitur opsional. Model sekitar 90–150 MB diunduh hanya saat fitur dinyalakan. Perhitungannya berjalan di CPU, sekitar 1,5–4 menit per 855 foto, dengan RAM sekitar 300–600 MB selama proses.
-- **Syarat:** folder sesi yang sudah dikoreksi harus masih ada, karena sidik jarinya dihitung dari foto aslinya.
-- Model ini hanya dipakai kalau terbukti lebih akurat daripada model sederhana, diuji dengan data Anda sendiri.
-
-## Struktur
+### Struktur
 
 | File | Isi |
 |---|---|
 | `sortir_ai/tampilan.py` | Antarmuka PySide6 |
 | `sortir_ai/inti.py` | Alur sortir, klien Gemini, penentuan status |
-| `sortir_ai/analisis.py` | Analisis lokal: ketajaman, exposure, grup mirip |
+| `sortir_ai/analisis.py` | Analisis lokal |
 | `sortir_ai/wajah.py` | Deteksi wajah MediaPipe |
-| `sortir_ai/selera.py` | Model selera pribadi |
-| `sortir_ai/belajar.py` | Pencatatan koreksi dari XMP |
-| `sortir_ai/cache.py` | Cache hasil per folder |
+| `sortir_ai/visual.py` | Sidik jari CLIP (ONNX) dan pengunduh model |
+| `sortir_ai/selera.py` | Model selera sederhana dan visual |
+| `sortir_ai/belajar.py` | Pencatatan koreksi, batas data, arsip |
+| `sortir_ai/cache.py` | Cache per folder |
 | `sortir_ai/metadata.py` | Baca/tulis XMP |
 | `sortir_ai/windows.py` | Deteksi editor, penyimpanan login |
+
+</details>

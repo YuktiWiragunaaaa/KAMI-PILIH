@@ -25,7 +25,7 @@ from typing import Callable, Optional
 from pydantic import BaseModel, Field
 
 from . import analisis as lokal
-from . import belajar, selera
+from . import belajar, selera, visual
 from . import metadata as metadata_xmp
 from .analisis import EKSTENSI_JPEG, EKSTENSI_RAW, daftar_foto  # noqa: F401  (dipakai UI)
 from .cache import CacheHasil
@@ -404,12 +404,12 @@ class PenyortirFoto:
     def sedang_berjalan(self):
         return self._thread is not None and self._thread.is_alive()
 
-    def mulai(self, folder, api_key, target_excellent, nama_model):
+    def mulai(self, folder, api_key, target_excellent, nama_model, pakai_visual=False):
         if self.sedang_berjalan:
             raise RuntimeError("Proses sortir masih berjalan.")
         self.cancel_event.clear()
         self._thread = threading.Thread(
-            target=self._jalankan, args=(folder, api_key, target_excellent, nama_model), daemon=True
+            target=self._jalankan, args=(folder, api_key, target_excellent, nama_model, pakai_visual), daemon=True
         )
         self._thread.start()
 
@@ -431,7 +431,7 @@ class PenyortirFoto:
             f" · {t['panggilan']} panggilan · {hemat} foto tanpa token (cache/saring lokal)"
         )
 
-    def _proses(self, folder, api_key, target_excellent, nama_model):
+    def _proses(self, folder, api_key, target_excellent, nama_model, pakai_visual=False):
         lapor = self.laporan
         semua = daftar_foto(folder)
         if not semua:
@@ -487,6 +487,19 @@ class PenyortirFoto:
                 "lokal": info.alasan_lokal, **info.wajah.untuk_fitur(),
             }
 
+        # 3b. Sidik jari visual (CLIP, lokal): dikumpulkan walau selera visual masih tidur,
+        #     agar datanya siap saat diaktifkan dan folder lama tidak perlu disimpan.
+        belum_visual = [i for i in dikirim if i.kunci not in cache.visual and i.pratinjau]
+        if belum_visual and visual.tersedia():
+            lapor.status(f"Membuat sidik jari visual {len(belum_visual)} foto (lokal)...")
+            try:
+                for info, sj in zip(belum_visual, visual.sidik_jari([i.pratinjau for i in belum_visual])):
+                    if sj:
+                        cache.visual[info.kunci] = sj
+                cache.tulis()
+            except Exception as error:
+                print(f"Sidik jari visual dilewati: {error}")
+
         # 4. Nilai dengan Gemini (lewati yang sudah ada di cache)
         belum = [i for i in dikirim if cache.ambil(i.kunci) is None]
         hemat = len(daftar_info) - len(belum)
@@ -525,11 +538,11 @@ class PenyortirFoto:
         # 5. Babak final: adu kandidat teratas agar Excellent = momen terkuat
         # Selera pribadi dari koreksi sebelumnya: hanya menggeser urutan kandidat.
         try:
-            model_selera = selera.latih()
+            model_selera = (selera.latih(pakai_visual=True) if pakai_visual else None) or selera.latih()
         except Exception as error:
             print(f"Model selera tidak dipakai: {error}")
             model_selera = None
-        bonus_selera = selera.bonus_untuk(model_selera, cache.data, cache.fitur)
+        bonus_selera = selera.bonus_untuk(model_selera, cache.data, cache.fitur, cache.visual)
         _, kandidat = tentukan_status(daftar_info, cache.data, target_excellent, bonus_selera)
         bonus = {}
         if len(kandidat) > target_excellent:
@@ -577,7 +590,8 @@ class PenyortirFoto:
             pesan += (f" Hanya {len(kandidat)} foto memenuhi standar Excellent (skor ≥ {SKOR_MIN_EXCELLENT});"
                       " sisanya tidak dipaksakan.")
         if model_selera:
-            pesan += f" Selera pribadi aktif ({model_selera.jumlah_data} data koreksi)."
+            jenis = "visual" if model_selera.pakai_visual else "pribadi"
+            pesan += f" Selera {jenis} aktif ({model_selera.jumlah_data} data koreksi)."
         if gagal_tulis:
             lapor.peringatan("Sebagian metadata gagal ditulis", "\n".join(gagal_tulis[:15]))
         lapor.selesai(pesan, True)

@@ -249,3 +249,86 @@ def test_selera_belajar_prioritas_momen():
     rendah = model.bonus({"momen": 2, "teknis": 10, "skor": 60}, {"ketajaman": 100})
     assert tinggi > 0 > rendah and abs(tinggi) <= selera.BONUS_MAKS
     assert selera.latih({k: data[k] for k in list(data)[:10]}) is None  # data belum cukup
+
+
+def _data_sintetis(n, rng, visual_penentu=False, umur_hari=0):
+    """Selera 'momen' (bisa dibaca dari laporan) atau 'arah visual' (hanya ada di sidik jari)."""
+    import base64
+    import time
+    arah = np.zeros(512, dtype=np.float32)
+    arah[:8] = 1
+    data = {}
+    for i in range(n):
+        v = rng.normal(size=512).astype(np.float32)
+        v /= np.linalg.norm(v)
+        momen = int(rng.integers(0, 11))
+        nilai = float(v @ arah) * 3 if visual_penentu else (momen - 5) / 2.5
+        akhir = "Excellent" if nilai > 0.6 else ("Good" if nilai > -0.6 else "Bad")
+        data[f"{umur_hari}|{i}"] = {
+            "ai": {"momen": momen, "ekspresi": 5, "gestur": 5, "teknis": 5, "skor": 60},
+            "fitur": {"ketajaman": 100}, "akhir": akhir, "prediksi": "Good",
+            "visual": base64.b64encode(v.astype(np.float16).tobytes()).decode(),
+            "waktu": int(time.time() - umur_hari * 86400),
+        }
+    return data
+
+
+def test_selera_visual_hanya_siap_bila_lebih_akurat():
+    from sortir_ai import selera
+    rng = np.random.default_rng(1)
+    assert not selera.uji_visual(_data_sintetis(300, rng, True))["siap"]  # data belum cukup
+    visual = selera.uji_visual(_data_sintetis(1200, rng, visual_penentu=True))
+    assert visual["siap"] and visual["lebih_baik_persen"] >= 3
+    laporan = selera.uji_visual(_data_sintetis(1200, rng, visual_penentu=False))
+    assert not laporan["siap"]  # selera sudah terbaca dari kolom: visual tidak diperlukan
+    model = selera.latih(_data_sintetis(1200, rng, True), pakai_visual=True)
+    assert model.pakai_visual and model.bonus({"momen": 5}, {}, None) == 0.0  # tanpa sidik jari: netral
+
+
+def test_selera_koreksi_terbaru_lebih_berbobot():
+    from sortir_ai import selera
+    rng = np.random.default_rng(2)
+    lama = _data_sintetis(300, rng, umur_hari=720)          # dulu: suka momen tinggi
+    for d in lama.values():
+        d["akhir"] = {"Bad": "Excellent", "Excellent": "Bad"}.get(d["akhir"], "Good")  # dibalik
+    baru = _data_sintetis(300, rng, umur_hari=0)            # sekarang: suka momen tinggi
+    model = selera.latih({**lama, **baru})
+    assert model.aspek_terpenting(1)[0] == ("momen", "+")
+
+
+def test_batas_data_dan_arsip(tmp_path, monkeypatch):
+    monkeypatch.setattr(belajar, "FILE_DATA", str(tmp_path / "data.json"))
+    monkeypatch.setattr(belajar, "FILE_ARSIP", str(tmp_path / "arsip.json"))
+    monkeypatch.setattr(belajar, "FOLDER_DATA", str(tmp_path))
+    monkeypatch.setattr(belajar, "MAKS_DATA", 5)
+    belajar._simpan({str(i): {"waktu": i, "akhir": "Good", "prediksi": "Good"} for i in range(8)})
+    assert sorted(belajar._muat()) == ["3", "4", "5", "6", "7"]  # yang paling lama dibuang
+    assert belajar.mulai_selera_baru() == 5 and belajar._muat() == {} and belajar.ada_arsip()
+    belajar._simpan({"x": {"waktu": 1, "akhir": "Bad", "prediksi": "Good"}})
+    assert belajar.pulihkan_selera_lama() == 5
+    assert len(belajar._muat()) == 5 and belajar.pulihkan_selera_lama() == 1  # tukar balik
+
+
+def test_sidik_jari_visual_nyata():
+    from sortir_ai import visual
+    if not visual.tersedia():
+        pytest.skip("model CLIP belum diunduh")
+    def jpeg(warna):
+        buf = io.BytesIO()
+        Image.new("RGB", (400, 300), warna).save(buf, format="JPEG")
+        return buf.getvalue()
+    merah, merah2, biru = [visual.ke_vektor(s) for s in visual.sidik_jari([jpeg((220, 30, 30)), jpeg((200, 40, 40)), jpeg((30, 30, 220))])]
+    assert merah.shape == (512,)
+    assert merah @ merah2 > merah @ biru  # warna mirip -> sidik jari mirip
+    assert visual.sidik_jari([b"bukan jpeg"]) == [None]
+
+
+def test_unduh_model_terputus_ditolak(tmp_path, monkeypatch):
+    import urllib.request
+    from sortir_ai import visual
+    monkeypatch.setattr(visual, "FILE_MODEL", str(tmp_path / "clip.onnx"))
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: io.BytesIO(b"x" * 1000))
+    with pytest.raises(IOError):
+        visual.unduh_model()
+    assert not os.listdir(tmp_path)  # tidak ada file setengah jadi
+    assert not visual.model_ada()

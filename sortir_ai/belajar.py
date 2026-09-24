@@ -16,6 +16,8 @@ from .cache import CacheHasil
 
 FOLDER_DATA = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "SortirAI")
 FILE_DATA = os.path.join(FOLDER_DATA, "data_latihan.json")
+FILE_ARSIP = os.path.join(FOLDER_DATA, "data_latihan_arsip.json")  # satu slot: selera sebelumnya
+MAKS_DATA = 5000  # foto terbaru yang disimpan; yang paling lama dibuang (~12 MB)
 
 
 def baca_status_file(path_foto):
@@ -43,12 +45,16 @@ def _muat():
         return {}
 
 
-def _simpan(data):
+def _simpan(data, path=None):
+    path = path or FILE_DATA
+    if len(data) > MAKS_DATA:
+        terbaru = sorted(data.items(), key=lambda kv: kv[1].get("waktu", 0), reverse=True)[:MAKS_DATA]
+        data = dict(terbaru)
     os.makedirs(FOLDER_DATA, exist_ok=True)
-    tmp = FILE_DATA + ".tmp"
+    tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f)
-    os.replace(tmp, FILE_DATA)
+    os.replace(tmp, path)
 
 
 def kumpulkan_koreksi(folder, cache=None):
@@ -69,6 +75,7 @@ def kumpulkan_koreksi(folder, cache=None):
         data[f"{os.path.normcase(os.path.abspath(folder))}|{kunci}"] = {
             "fitur": cache.fitur.get(kunci, {}),
             "ai": cache.data.get(kunci) or cache.hasil_semua.get(kunci),
+            "visual": cache.visual.get(kunci),
             "prediksi": pred["status"],
             "akhir": akhir,
             "waktu": int(time.time()),
@@ -87,3 +94,30 @@ def ringkasan():
         return 0, None
     setuju = sum(1 for d in data.values() if d["akhir"] == d["prediksi"])
     return len(data), round(100 * setuju / len(data))
+
+
+def mulai_selera_baru():
+    """Pindahkan data sekarang ke arsip (menggantikan arsip lama), mulai dari kosong.
+    -> jumlah foto yang diarsipkan."""
+    data = _muat()
+    if data:
+        _simpan(data, FILE_ARSIP)
+    _simpan({})
+    return len(data)
+
+
+def pulihkan_selera_lama():
+    """Tukar data sekarang dengan arsip. -> jumlah foto yang dipulihkan (0 bila arsip kosong)."""
+    try:
+        with open(FILE_ARSIP, "r", encoding="utf-8") as f:
+            arsip = json.load(f)
+    except (OSError, ValueError):
+        return 0
+    sekarang = _muat()
+    _simpan(arsip)
+    _simpan(sekarang, FILE_ARSIP)
+    return len(arsip)
+
+
+def ada_arsip():
+    return os.path.exists(FILE_ARSIP) and os.path.getsize(FILE_ARSIP) > 2
