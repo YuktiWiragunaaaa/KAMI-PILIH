@@ -1,7 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 a = Analysis(
-    ['aplikasi_sortir_glass.py'],
-    pathex=[], binaries=[], datas=[], hiddenimports=[],
+    ['sortir_ai/__main__.py'],
+    pathex=[], binaries=[], datas=[('sortir_ai/model/face_landmarker.task', 'sortir_ai/model')],
+    hiddenimports=[],
     hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=[],
     noarchive=False, optimize=0,
 )

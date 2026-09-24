@@ -31,15 +31,25 @@ from PIL import Image
 UKURAN_MAKS_AI = 1280
 KUALITAS_JPEG_AI = 78
 UKURAN_BATCH = 30
-MODEL_GEMINI_DEFAULT = "gemini-3.5-flash-lite"
+MODEL_GEMINI_DEFAULT = "gemini-3.6-flash"
 MODEL_GEMINI_OPTIONS = (
-    "gemini-3.5-flash-lite",
-    "gemini-2.5-flash",
-    "gemini-2.5-pro",
+    "gemini-3.6-flash",
+    "gemini-3.6-flash-lite",
 )
 FILE_LOGIN = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "SortirAI", "login.dat")
+REGISTRY_LOGIN_PATH = r"Software\SortirAI"
 EKSTENSI_JPEG = (".jpg", ".jpeg")
 EKSTENSI_RAW = (".arw", ".cr2", ".cr3", ".nef", ".raf", ".orf", ".rw2", ".dng")
+
+
+def ukuran_batch_untuk_model(nama_model):
+    """Pilih batch yang lebih aman berdasarkan kecepatan model vision."""
+    nama_model = nama_model.lower()
+    if "pro" in nama_model:
+        return 6
+    if "lite" in nama_model:
+        return 12
+    return 10
 
 # (nama tampilan, nama executable, folder produk di Program Files)
 # "Lightroom Classic" dan "Adobe Lightroom" sengaja dijadikan satu entri
@@ -113,25 +123,47 @@ def dekripsi_login(teks):
 
 def baca_login():
     try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_LOGIN_PATH) as key:
+            terenkripsi, _ = winreg.QueryValueEx(key, "Login")
+        data = json.loads(dekripsi_login(terenkripsi))
+        return data if data.get("api_key") else None
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
+    try:
         with open(FILE_LOGIN, "r", encoding="ascii") as file:
             data = json.loads(dekripsi_login(file.read()))
-        return data if data.get("api_key") else None
+        if data.get("api_key"):
+            simpan_login(data)
+            return data
+        return None
     except (OSError, ValueError, json.JSONDecodeError):
         return None
 
 
 def simpan_login(data):
-    os.makedirs(os.path.dirname(FILE_LOGIN), exist_ok=True)
-    with open(FILE_LOGIN, "w", encoding="ascii") as file:
-        file.write(enkripsi_login(json.dumps(data)))
+    terenkripsi = enkripsi_login(json.dumps(data))
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, REGISTRY_LOGIN_PATH) as key:
+        winreg.SetValueEx(key, "Login", 0, winreg.REG_SZ, terenkripsi)
+    try:
+        os.remove(FILE_LOGIN)
+    except FileNotFoundError:
+        pass
 
 
 def hapus_login():
+    terhapus = False
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_LOGIN_PATH, 0, winreg.KEY_SET_VALUE) as key:
+            winreg.DeleteValue(key, "Login")
+            terhapus = True
+    except (FileNotFoundError, OSError):
+        pass
     try:
         os.remove(FILE_LOGIN)
-        return True
+        terhapus = True
     except FileNotFoundError:
-        return False
+        pass
+    return terhapus
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +182,12 @@ def daftar_model_vision(api_key):
         if any(kata in nama for kata in ("embedding", "tts", "audio", "live", "native")):
             continue
         hasil.append(nama)
-    return sorted(hasil)
+    # Daftar berasal dari API agar mengikuti model yang tersedia untuk akun.
+    return sorted(hasil, key=lambda nama: (
+        "pro" in nama,
+        "flash" not in nama,
+        nama,
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +355,9 @@ PROMPT_TEMPLATE = """
 Anda adalah fotografer senior sekaligus kurator foto profesional. Analisis setiap foto secara
 ketat, objektif, dan konsisten. Nilai foto berdasarkan kualitas visual yang benar-benar terlihat,
 bukan berdasarkan asumsi tentang jenis acaranya. Standar ini berlaku untuk foto event, wedding,
-olahraga, dokumentasi, portrait, produk, maupun foto studio.
+olahraga, dokumentasi, portrait, produk, maupun foto studio. Pastikan foto memiliki nilai story yang kuat secara objektif, 
+wajah subjek jelas, dan momen yang paling menarik. Jangan menilai berdasarkan preferensi pribadi,
+tren, atau gaya artistik. Jangan menilai berdasarkan metadata, nama file, atau urutan pengambilan. Jangan menilai berdasarkan kualitas teknis yang tidak terlihat, seperti resolusi asli, ISO, atau lensa yang digunakan. 
 
 Klasifikasi:
 * Excellent: hero shot yang layak untuk cetakan besar 16R, halaman utama, atau cover album.
@@ -345,6 +384,18 @@ grain, atau shallow depth of field selama hasilnya terlihat terkontrol dan subje
 Untuk foto studio atau produk, prioritaskan bentuk, detail, kebersihan latar, pencahayaan, dan
 ketepatan fokus; untuk event, prioritaskan momen, emosi, interaksi, dan variasi cerita.
 Foto yang tidak dikirim karena duplicate file sudah diberi Bad oleh aplikasi.
+
+Prosedur penilaian wajib:
+1. Periksa setiap foto satu per satu sebelum membandingkan foto yang mirip.
+2. Untuk setiap foto, nilai secara internal lima aspek dari 0 sampai 20: fokus/subjek,
+    exposure, komposisi, momen/ekspresi, dan nilai cerita/keunikan.
+3. Jangan memberi Excellent hanya karena foto terlihat menarik. Excellent harus kuat pada
+    sebagian besar aspek dan tidak memiliki cacat besar pada fokus, mata, exposure, atau momen.
+4. Jika ragu antara dua label, pilih label yang lebih rendah. Jangan memaksakan target
+    Excellent; kuota adalah batas maksimum, bukan alasan untuk menaikkan foto yang lemah.
+5. Jika beberapa foto hampir sama, pilih frame dengan fokus, ekspresi, gestur, dan komposisi
+    terbaik. Tetap pertahankan variasi subjek dan momen.
+6. Setelah penilaian selesai, keluarkan hanya satu label untuk setiap nama file yang dikirim.
 
 Output WAJIB berupa JSON murni tanpa Markdown, komentar, atau teks tambahan. Gunakan key hanya
 nama file berikut dan nilai hanya salah satu dari "Excellent", "Good", atau "Bad":
@@ -394,7 +445,8 @@ class PenyortirFoto:
             lapor.selesai("Tidak ada foto untuk diproses.", False)
             return
 
-        kelompok_foto = [semua_foto[i:i + UKURAN_BATCH] for i in range(0, len(semua_foto), UKURAN_BATCH)]
+        ukuran_batch = ukuran_batch_untuk_model(nama_model)
+        kelompok_foto = [semua_foto[i:i + ukuran_batch] for i in range(0, len(semua_foto), ukuran_batch)]
         jumlah_batch = len(kelompok_foto)
         kuota_dasar, sisa_kuota = divmod(target_excellent, jumlah_batch)
         total_byte = sum(os.path.getsize(path) for path in semua_foto)
@@ -436,7 +488,13 @@ class PenyortirFoto:
             try:
                 keputusan = dict(keputusan_awal)
                 if gambar_dikirim:
-                    respons = model.generate_content([prompt] + gambar_dikirim)
+                    respons = model.generate_content(
+                        [prompt] + gambar_dikirim,
+                        generation_config={
+                            "temperature": 0.1,
+                            "response_mime_type": "application/json",
+                        },
+                    )
                     keputusan.update(baca_json_model(respons.text))
                 keputusan = normalisasi_keputusan(nama_file_batch, keputusan, kuota_batch)
             except Exception as error:
