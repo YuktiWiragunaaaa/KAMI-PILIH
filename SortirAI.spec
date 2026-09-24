@@ -1,7 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 a = Analysis(
     ['sortir_ai/__main__.py'],
-    pathex=[], binaries=[], datas=[('sortir_ai/model/face_landmarker.task', 'sortir_ai/model')],
+    pathex=[], binaries=[], datas=[('sortir_ai/model/face_landmarker.task', 'sortir_ai/model'),
+                          ('sortir_ai/aset/ikon.ico', 'sortir_ai/aset')],
     hiddenimports=[],
     hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=[],
     noarchive=False, optimize=0,
@@ -11,6 +12,6 @@ exe = EXE(
     pyz, a.scripts, a.binaries, a.datas, [],
     name='SortirAI', debug=False, bootloader_ignore_signals=False,
     strip=False, upx=True, upx_exclude=[], runtime_tmpdir=None,
-    console=False, disable_windowed_traceback=False,
+    console=False, icon='sortir_ai/aset/ikon.ico', disable_windowed_traceback=False,
     argv_emulation=False, target_arch=None, codesign_identity=None, entitlements_file=None,
 )

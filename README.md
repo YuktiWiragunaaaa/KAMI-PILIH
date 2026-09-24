@@ -17,7 +17,7 @@ Label ini langsung terbaca di **Capture One, Lightroom, atau Photoshop**, jadi A
 | Kebutuhan | Keterangan |
 |---|---|
 | **Windows 10 atau 11 (64-bit)** | Aplikasi memakai fitur Windows untuk menyimpan login dan mendeteksi editor |
-| **Python 3.12** | Harus versi 3.12, bukan 3.13 atau yang lebih baru, karena beberapa library belum mendukungnya |
+| **Python 3.12 dari python.org** | Harus versi 3.12 (library tertentu belum mendukung versi lebih baru), dan **jangan dari Microsoft Store**: versi Store membuat logo di taskbar selalu tampil sebagai logo Python |
 | **Ruang kosong ±1,5 GB di C:** | Sekitar 1,1 GB untuk library Python, ditambah 89 MB untuk model selera visual |
 | **Internet** | Untuk penilaian Gemini dan pemasangan pertama kali |
 | **API key Gemini** | Gratis dibuat di [Google AI Studio](https://aistudio.google.com) |
@@ -28,7 +28,9 @@ Label ini langsung terbaca di **Capture One, Lightroom, atau Photoshop**, jadi A
 1. Buka [python.org/downloads/windows](https://www.python.org/downloads/windows/), lalu unduh **Windows installer (64-bit)** untuk versi **3.12.x** yang terbaru.
 2. Jalankan installer, lalu **centang "Add python.exe to PATH"** di layar pertama.
 3. Klik **Install Now**.
-4. Untuk mengecek, buka Command Prompt dan ketik `py -3.12 --version`. Hasilnya harus `Python 3.12.x`.
+4. Untuk mengecek, buka Command Prompt dan ketik `py -0p`. Harus ada baris 3.12 yang **tidak** mengandung `WindowsApps`.
+
+> **Sudah terlanjur memakai Python dari Microsoft Store?** Hapus lewat Settings → Apps → Installed apps → Python 3.12, pasang versi python.org, lalu hapus folder `.venv` dan jalankan `Buka Sortir AI.bat` lagi.
 
 ---
 
@@ -37,7 +39,7 @@ Label ini langsung terbaca di **Capture One, Lightroom, atau Photoshop**, jadi A
 ### Pertama kali
 
 1. Klik dua kali **`Buka Sortir AI.bat`**. File ini otomatis membuat "venv" (folder `.venv`, tempat khusus untuk library aplikasi supaya tidak bercampur dengan program lain) dan memasang semua library yang dibutuhkan. Proses ini butuh **5–15 menit**, tergantung kecepatan internet. Selanjutnya aplikasi langsung terbuka.
-2. Masukkan **API key Gemini**, lalu klik **Login**. Key disimpan aman dan terenkripsi oleh Windows.
+2. Buka **Pengaturan** (tombol ⚙ di pojok kanan atas; terbuka otomatis saat pertama kali), tempel **API key Gemini**, lalu klik **Simpan**. Key disimpan aman dan terenkripsi oleh Windows.
 
 <details>
 <summary>Membuat venv secara manual (kalau file .bat gagal)</summary>
@@ -71,10 +73,10 @@ Setelah itu, aplikasi bisa dibuka lewat `Buka Sortir AI.bat` atau dengan perinta
 
 ### Setiap sesi foto
 
-1. **Pilih folder** berisi foto sesi tersebut.
+1. **Tarik folder sesi** ke kotak besar di atas, atau klik kotaknya untuk memilih. Bisa juga dengan menarik satu foto dari folder itu.
 2. Atur **jumlah foto Excellent** yang diinginkan, misalnya 30.
-3. Klik **Mulai sortir** dan tunggu sampai selesai.
-4. Klik **Buka editor**. Foto sudah berlabel.
+3. Klik **Sortir sekarang →** dan tunggu. Hasilnya langsung tampil, misalnya ★ 30 Excellent · 212 Good · 613 Bad.
+4. Klik tombol oranye **Buka di Capture One →** (atau editor pilihan Anda). Foto sudah berlabel.
 
 Aplikasi mengingat pilihan terakhir Anda (model, jumlah foto, folder, dan editor), jadi tidak perlu diatur ulang setiap kali.
 
@@ -108,13 +110,13 @@ Pembelajaran selera hanya **mengubah urutan foto terbaik**. Foto yang jelas jele
 Pembelajaran biasa hanya melihat angka penilaian, seperti skor momen, ekspresi, dan ketajaman. **Selera visual** juga melihat *tampilan* foto: warna, gaya, pose, dan suasana.
 
 - Fitur ini **tidur** dulu. Selama tidur, aplikasi diam-diam mengumpulkan data tanpa mengubah hasil sortir.
-- Setelah data cukup dan fitur ini terbukti lebih akurat, muncul pesan dengan tombol **Aktifkan**.
-- Sesudah itu, fitur bisa dinyalakan atau dimatikan kapan saja lewat sakelar **Selera visual**.
+- Setelah data cukup dan fitur ini terbukti lebih akurat, muncul pesan dengan tombol **Nyalakan**.
+- Sesudah itu, fitur bisa dinyalakan atau dimatikan kapan saja lewat sakelar **Selera visual** di Pengaturan (⚙).
 
 ### Kalau selera Anda berubah
 
 - **Berubah pelan-pelan:** tidak perlu melakukan apa pun. Koreksi terbaru selalu dihitung lebih penting daripada koreksi lama.
-- **Berubah total:** klik **Mulai selera baru…**. Selera lama disimpan sebagai cadangan, dan bisa dikembalikan lewat **Tukar dengan arsip**.
+- **Berubah total:** klik **Mulai selera baru** di Pengaturan (⚙). Selera lama disimpan sebagai cadangan, dan bisa dikembalikan lewat **Tukar dengan arsip**.
 
 ---
 
@@ -126,7 +128,7 @@ Hanya biaya pemakaian Gemini. Aplikasi menghemat biaya dengan cara:
 - tidak menilai ulang foto yang sudah pernah dinilai.
 
 **Muncul error "503" atau "high demand"?**
-Server Google sedang penuh, bukan masalah di komputer Anda. Aplikasi otomatis mencoba lagi dan pindah ke model cadangan. Kalau tetap gagal, tunggu sebentar lalu klik Mulai sortir lagi. Foto yang sudah dinilai tidak dihitung ulang.
+Server Google sedang penuh, bukan masalah di komputer Anda. Aplikasi otomatis mencoba lagi dan pindah ke model cadangan. Kalau tetap gagal, tunggu sebentar lalu klik Sortir sekarang lagi. Foto yang sudah dinilai tidak dihitung ulang.
 
 **Model Gemini mana yang sebaiknya dipilih?**
 Model **Flash Lite** paling hemat dan jarang penuh. Hasilnya bagus untuk menyaring foto yang blur, bermata terpejam, atau kembar. Untuk menilai ekspresi yang halus, model ini sedikit kurang tajam, dan di sinilah pembelajaran selera membantu.
@@ -144,7 +146,7 @@ Tidak. Aplikasi hanya menambahkan label (rating). Gambar tidak diubah sedikit pu
 
 **Bagaimana memakai aplikasi di komputer lain?**
 1. Salin folder aplikasi, lalu jalankan `Buka Sortir AI.bat`. Library yang dibutuhkan dipasang otomatis.
-2. Untuk selera visual, klik **Unduh model visual (89 MB)** di aplikasi.
+2. Untuk selera visual, klik **Unduh model visual (89 MB)** di Pengaturan (⚙).
 3. Supaya selera Anda ikut pindah, salin juga file `%APPDATA%\SortirAI\data_latihan.json` dari komputer lama.
 
 **Bolehkah folder sesi lama dihapus?**
@@ -161,6 +163,12 @@ Boleh, **setelah** Anda mengklik "Pelajari koreksi" untuk sesi tersebut. Data be
 
 ```bash
 .venv\Scripts\python.exe -m sortir_ai
+```
+
+Tes butuh `pytest`, yang tidak ikut di `requirements.txt`:
+
+```bash
+.venv\Scripts\pip install pytest
 ```
 
 ```bash
