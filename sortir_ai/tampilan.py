@@ -894,6 +894,19 @@ class JendelaSortir(QMainWindow):
         self.tombol_folder.dijatuhkan.connect(self._folder_dijatuhkan)
         isi.addWidget(self.tombol_folder)
 
+        # Jenis sesi aktif ditampilkan jelas di depan agar tidak menyortir dengan jenis yang keliru.
+        baris_jenis = QHBoxLayout()
+        baris_jenis.setSpacing(10)
+        baris_jenis.addWidget(label("Jenis sesi", "Section"))
+        self.tombol_jenis = Tombol("", "Chip")
+        self.tombol_jenis.setCheckable(True)
+        self.tombol_jenis.setChecked(True)  # tampil seperti chip terpilih
+        self.tombol_jenis.setToolTip("Jenis sesi yang dipakai saat sortir. Klik untuk mengganti.")
+        self.tombol_jenis.clicked.connect(self._menu_pilih_jenis)
+        baris_jenis.addWidget(self.tombol_jenis)
+        baris_jenis.addStretch(1)
+        isi.addLayout(baris_jenis)
+
         isi.addWidget(label("Jumlah foto terbaik", "Section"))
         baris_target = QHBoxLayout()
         baris_target.setSpacing(8)
@@ -995,6 +1008,11 @@ class JendelaSortir(QMainWindow):
                                      "Help", wrap=True), 1)
         self.tombol_bawaan = Tombol("Kembalikan ke bawaan", "Tautan")
         self.tombol_bawaan.clicked.connect(self._kembalikan_bawaan)
+        # Ruangnya tetap dipesan saat tersembunyi: bila tidak, teks di sampingnya melebar-menyempit
+        # dan terlipat ulang tiap ganti jenis sesi, membuat seluruh halaman "bergetar".
+        kebijakan = self.tombol_bawaan.sizePolicy()
+        kebijakan.setRetainSizeWhenHidden(True)
+        self.tombol_bawaan.setSizePolicy(kebijakan)
         baris_bawaan.addWidget(self.tombol_bawaan)
         isi.addLayout(baris_bawaan)
         tata.addWidget(k)
@@ -1327,8 +1345,22 @@ class JendelaSortir(QMainWindow):
     def _set_titik(self, warna):
         self.titik.setStyleSheet(f"background:{warna}; border-radius:5px;")
 
+    def _menu_pilih_jenis(self):
+        self.tombol_jenis.setChecked(True)  # klik tidak boleh mematikan tampilan "terpilih"
+        menu = QMenu(self)
+        for nama in self.konfig.daftar_jenis():
+            aksi = menu.addAction(self.konfig.nama_tampil(nama))
+            aksi.setCheckable(True)
+            aksi.setChecked(nama == self.konfig.preset)
+            aksi.triggered.connect(lambda _c=False, n=nama: self._pilih_preset(n))
+        menu.addSeparator()
+        menu.addAction("Atur jenis sesi…").triggered.connect(lambda: self.tombol_pengaturan.setChecked(True))
+        menu.exec(self.tombol_jenis.mapToGlobal(self.tombol_jenis.rect().bottomLeft()))
+
     def _perbarui_ringkas(self):
-        bagian = [self._nama_preset_aktif(), self.pilihan_model.currentText() or "model belum dipilih"]
+        if hasattr(self, "tombol_jenis"):
+            self.tombol_jenis.setText(f"{self._nama_preset_aktif()}  ▾")
+        bagian = [self.pilihan_model.currentText() or "model belum dipilih"]
         if self.editor_terdeteksi:
             bagian.append(f"buka di {self.pilihan_editor.currentText()}")
         if not self.api_tersimpan:
@@ -1383,15 +1415,27 @@ class JendelaSortir(QMainWindow):
             return
         kotak = QMessageBox(self)
         kotak.setWindowTitle("Jenis sesi baru")
-        kotak.setText(f"Mulai \"{nama.strip()}\" dari mana?")
-        salin = kotak.addButton(f"Salin dari {self.konfig.nama_tampil(self.konfig.preset)}", QMessageBox.ButtonRole.AcceptRole)
-        kotak.addButton("Mulai dari Umum", QMessageBox.ButtonRole.ActionRole)
+        if self.konfig.preset == "Umum" and self.konfig.sama_dengan_bawaan():
+            self._buat_jenis(nama, salin_aktif=False)  # dua pilihan sama saja: tidak perlu bertanya
+            return
+        aktif = self.konfig.nama_tampil(self.konfig.preset)
+        kotak.setText(f"Pengaturan awal untuk \"{nama.strip()}\" diambil dari mana?")
+        kotak.setInformativeText(f"• Salin: pakai bobot, catatan, dan rating dari \"{aktif}\" yang sedang aktif.\n"
+                                 "• Umum: mulai dari pengaturan standar.\n\n"
+                                 "Semuanya tetap bisa diubah setelahnya.")
+        salin = kotak.addButton(f"Salin {aktif}", QMessageBox.ButtonRole.AcceptRole)
+        kotak.addButton("Umum", QMessageBox.ButtonRole.ActionRole)
         kotak.addButton("Batal", QMessageBox.ButtonRole.RejectRole)
+        for b in kotak.buttons():  # stylesheet menambah padding: lebar bawaan Qt terlalu sempit
+            b.setMinimumWidth(b.fontMetrics().horizontalAdvance(b.text()) + 48)
         kotak.exec()
         if kotak.buttonRole(kotak.clickedButton()) == QMessageBox.ButtonRole.RejectRole:
             return
+        self._buat_jenis(nama, salin_aktif=kotak.clickedButton() is salin)
+
+    def _buat_jenis(self, nama, salin_aktif):
         try:
-            self.konfig.tambah_jenis(nama, salin_aktif=kotak.clickedButton() is salin)
+            self.konfig.tambah_jenis(nama, salin_aktif=salin_aktif)
         except ValueError as error:
             QMessageBox.information(self, "Belum bisa dibuat", str(error))
             return
@@ -1448,6 +1492,12 @@ class JendelaSortir(QMainWindow):
 
     def _muat_ke_form(self):
         """Tampilkan profil jenis sesi aktif di semua kontrol pengaturan."""
+        # Baris aspek dihapus lalu dibuat ulang: tanpa pembekuan, tiap langkah sempat tergambar
+        # sehingga halaman menyusut-memanjang sekejap ("getar"). Gambar hanya keadaan akhirnya.
+        wadah = self.window()
+        wadah.setUpdatesEnabled(False)
+        gulir = self.gulir_pengaturan.verticalScrollBar() if hasattr(self, "gulir_pengaturan") else None
+        posisi = gulir.value() if gulir else 0
         self._memuat = True
         try:
             for a, baris in self.baris_bobot.items():
@@ -1469,8 +1519,13 @@ class JendelaSortir(QMainWindow):
                 self.pilihan_editor.setCurrentText(self.konfig.editor)
         finally:
             self._memuat = False
-        self._sinkron_preset()
-        self._perbarui_ringkas()
+            self._sinkron_preset()
+            self._perbarui_ringkas()
+            if hasattr(self, "konten_pengaturan"):
+                self.konten_pengaturan.layout().activate()
+            if gulir:
+                gulir.setValue(posisi)  # tetap di tempat yang sama, tidak melompat
+            wadah.setUpdatesEnabled(True)
 
     def _tambah_aspek(self, nama, bobot, simpan=True):
         if len(self.baris_tambahan) >= MAKS_ASPEK_TAMBAHAN:
@@ -1761,7 +1816,7 @@ class JendelaSortir(QMainWindow):
 
     # ---- proses -----------------------------------------------------------
     def _atur_kontrol(self, sedang_proses):
-        for w in (self.stepper, self.tombol_folder, self.tombol_belajar, self.tombol_pengaturan,
+        for w in (self.stepper, self.tombol_folder, self.tombol_jenis, self.tombol_belajar, self.tombol_pengaturan,
                   *self.chip_target.values()):
             w.setEnabled(not sedang_proses)
         self.tombol_mulai.setVisible(not sedang_proses)
