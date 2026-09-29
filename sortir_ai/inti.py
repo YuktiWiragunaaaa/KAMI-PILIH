@@ -29,6 +29,7 @@ from . import belajar, selera, visual
 from . import metadata as metadata_xmp
 from .analisis import EKSTENSI_JPEG, EKSTENSI_RAW, daftar_foto  # noqa: F401  (dipakai UI)
 from .cache import CacheHasil
+from .konfigurasi import Konfigurasi
 from .windows import (  # noqa: F401  (diekspor ulang untuk UI)
     KONFIGURASI_EDITOR,
     baca_login,
@@ -160,6 +161,11 @@ gestur, 3) nilai cerita dan keunikan dibanding foto lain, 4) kualitas teknis.
 Keluarkan semua ID tepat satu kali di "urutan"."""
 
 
+class NilaiAspek(BaseModel):
+    nama: str
+    nilai: int = Field(ge=0, le=10)
+
+
 class NilaiFoto(BaseModel):
     # Urutan field = urutan pengisian oleh model: aspek dulu, baru skor akhir.
     id: int
@@ -167,6 +173,7 @@ class NilaiFoto(BaseModel):
     ekspresi: int = Field(ge=0, le=10)
     gestur: int = Field(ge=0, le=10)
     teknis: int = Field(ge=0, le=10)
+    tambahan: list[NilaiAspek] = []  # aspek buatan pengguna (kosong bila tidak ada)
     cacat: list[str] = []
     terbaik_di_grup: bool = False
     skor: int = Field(ge=0, le=100)
@@ -279,9 +286,9 @@ class KlienGemini:
             isi.append(t.Part.from_bytes(data=info.pratinjau, mime_type="image/jpeg"))
         return isi
 
-    def nilai(self, batch):
+    def nilai(self, batch, prompt=PROMPT):
         """batch: list InfoFoto. -> {indeks_dalam_batch: NilaiFoto}"""
-        respons = self._panggil(self._isi_gambar(PROMPT, batch), list[NilaiFoto])
+        respons = self._panggil(self._isi_gambar(prompt, batch), list[NilaiFoto])
         daftar = respons.parsed
         if not isinstance(daftar, list):
             try:
@@ -295,9 +302,9 @@ class KlienGemini:
                 hasil.setdefault(n.id, n)
         return hasil
 
-    def urutkan(self, kelompok):
+    def urutkan(self, kelompok, prompt=PROMPT_FINAL):
         """kelompok: list InfoFoto. -> list indeks dari terbaik ke terburuk (selalu lengkap)."""
-        respons = self._panggil(self._isi_gambar(PROMPT_FINAL, kelompok, dengan_grup=False), UrutanFinal)
+        respons = self._panggil(self._isi_gambar(prompt, kelompok, dengan_grup=False), UrutanFinal)
         hasil = respons.parsed
         try:
             urutan = hasil.urutan if isinstance(hasil, UrutanFinal) else json.loads(respons.text)["urutan"]
@@ -313,9 +320,11 @@ class KlienGemini:
 # ---------------------------------------------------------------------------
 # Keputusan (murni, mudah diuji)
 # ---------------------------------------------------------------------------
-def tentukan_status(daftar_info, nilai_ai, target_excellent, bonus=None):
+def tentukan_status(daftar_info, nilai_ai, target_excellent, bonus=None, vektor=None, konfig=None):
     """daftar_info: semua InfoFoto; nilai_ai: {kunci: {skor, cacat, terbaik, ...}};
     bonus: {kunci: poin dari babak final} (opsional, hanya mengubah urutan kandidat).
+    vektor: {kunci: sidik jari CLIP} (opsional). Kandidat yang hampir kembar dengan Excellent
+    yang sudah terpilih dilewati (tetap Good), supaya Excellent berisi momen yang beragam.
 
     -> ({path: status}, kandidat_excellent_terurut: list InfoFoto)"""
     bonus = bonus or {}
@@ -330,7 +339,7 @@ def tentukan_status(daftar_info, nilai_ai, target_excellent, bonus=None):
         if n is None:
             status[info.path] = "Good"  # tidak sempat dinilai: netral, jangan dibuang
             continue
-        skor = n["skor"]
+        skor = konfig.skor(n) if konfig else n["skor"]  # bobot aspek pilihan pengguna
         if info.wajah.terpejam:
             skor = min(skor, SKOR_MAKS_ADA_TERPEJAM)
         skor_efektif[info.path] = skor
@@ -350,8 +359,18 @@ def tentukan_status(daftar_info, nilai_ai, target_excellent, bonus=None):
             kandidat.append(juara)
 
     kandidat.sort(key=lambda i: (skor_efektif[i.path] + bonus.get(i.kunci, 0), i.ketajaman), reverse=True)
-    for info in kandidat[:target_excellent]:
+    vektor = vektor or {}
+    terpilih = []
+    for info in kandidat:
+        if len(terpilih) >= target_excellent:
+            break
+        v = vektor.get(info.kunci)
+        if v is not None and any(float(v @ vektor[t.kunci]) >= lokal.BATAS_CLIP
+                                 for t in terpilih if t.kunci in vektor):
+            continue  # pose yang sama sudah terwakili
+        terpilih.append(info)
         status[info.path] = "Excellent"
+    kandidat = terpilih + [i for i in kandidat if i not in terpilih]
     return status, kandidat
 
 
@@ -404,12 +423,16 @@ class PenyortirFoto:
     def sedang_berjalan(self):
         return self._thread is not None and self._thread.is_alive()
 
-    def mulai(self, folder, api_key, target_excellent, nama_model, pakai_visual=False):
+    def mulai(self, folder, api_key, target_excellent, nama_model, pakai_visual=False, konfig=None,
+              hanya_belajar=False):
+        """hanya_belajar: nilai foto tapi JANGAN tulis label; rating yang sudah ada di file
+        (mis. pilihan klien) dicatat sebagai data latihan selera."""
         if self.sedang_berjalan:
             raise RuntimeError("Proses sortir masih berjalan.")
         self.cancel_event.clear()
         self._thread = threading.Thread(
-            target=self._jalankan, args=(folder, api_key, target_excellent, nama_model, pakai_visual), daemon=True
+            target=self._jalankan,
+            args=(folder, api_key, target_excellent, nama_model, pakai_visual, konfig, hanya_belajar), daemon=True
         )
         self._thread.start()
 
@@ -420,9 +443,9 @@ class PenyortirFoto:
         try:
             self._proses(*argumen)
         except GagalAI as error:
-            self.laporan.selesai(f"{error}. Hasil yang sudah dinilai tersimpan; jalankan lagi untuk melanjutkan.", False)
+            self.laporan.selesai(f"{error}. Foto yang sudah dinilai aman; sortir lagi untuk melanjutkan.", False)
         except Exception as error:
-            self.laporan.selesai(f"Proses gagal: {type(error).__name__}: {error}", False)
+            self.laporan.selesai(f"Ada masalah: {type(error).__name__}: {error}", False)
 
     def _laporan_token(self, gemini, hemat):
         t = gemini.token
@@ -431,23 +454,34 @@ class PenyortirFoto:
             f" · {t['panggilan']} panggilan · {hemat} foto tanpa token (cache/saring lokal)"
         )
 
-    def _proses(self, folder, api_key, target_excellent, nama_model, pakai_visual=False):
+    def _proses(self, folder, api_key, target_excellent, nama_model, pakai_visual=False, konfig=None,
+                hanya_belajar=False):
         lapor = self.laporan
         semua = daftar_foto(folder)
         if not semua:
-            lapor.peringatan("Folder kosong", "Tidak ada file JPEG atau RAW yang didukung di folder tersebut.")
-            lapor.selesai("Tidak ada foto untuk diproses.", False)
+            lapor.peringatan("Folder kosong", "Folder ini tidak berisi JPEG atau RAW yang bisa dibaca.")
+            lapor.selesai("Tidak ada foto di folder ini.", False)
             return
 
-        cache = CacheHasil(folder, f"{nama_model}|{VERSI_PROMPT}")
+        konfig = konfig or Konfigurasi()
+        # Aspek tambahan / catatan mengubah prompt: nilai lama tidak berlaku lagi (tanda berbeda).
+        tanda_prompt = konfig.tanda_prompt()
+        cache = CacheHasil(folder, f"{nama_model}|{VERSI_PROMPT}" + (f"|{tanda_prompt}" if tanda_prompt else ""))
+        prompt_nilai = PROMPT + konfig.tambahan_prompt()
+        prompt_final = PROMPT_FINAL + (f"\n\nCatatan dari fotografer:\n{konfig.catatan.strip()}"
+                                       if konfig.catatan.strip() else "")
         # Folder ini pernah disortir: catat koreksimu di editor SEBELUM rating ditimpa.
         try:
-            belajar.kumpulkan_koreksi(folder, cache)
+            belajar.kumpulkan_koreksi(folder, cache, konfig)
         except Exception as error:
             print(f"Gagal mencatat koreksi: {error}")
+        try:  # cadangan versi lama (foto.xmp.sortir.bak) dipindah ke folder tersembunyi
+            metadata_xmp.rapikan_cadangan_lama(folder)
+        except OSError as error:
+            print(f"Gagal merapikan cadangan: {error}")
 
         # 1. Analisis lokal paralel
-        lapor.status(f"Menganalisis {len(semua)} foto secara lokal (ketajaman, wajah, kemiripan)...")
+        lapor.status(f"Memeriksa {len(semua)} foto: fokus, mata, dan foto yang mirip…")
         daftar_info = []
         with ThreadPoolExecutor(max_workers=min(6, os.cpu_count() or 4)) as pool:
             for i, info in enumerate(pool.map(lokal.analisis, semua, range(len(semua)))):
@@ -456,7 +490,7 @@ class PenyortirFoto:
                     lapor.progress(i / len(semua) * 25)
                 if self.cancel_event.is_set():
                     pool.shutdown(cancel_futures=True)
-                    lapor.selesai("Proses dibatalkan.", False)
+                    lapor.selesai("Dibatalkan.", False)
                     return
 
         # 2. File kembar (isi identik) -> hanya yang pertama dinilai
@@ -467,17 +501,33 @@ class PenyortirFoto:
                 info.alasan_lokal.append("file_kembar")
             terlihat.add(hash_isi)
 
-        # 3. Saring lokal + grup burst + pangkas burst panjang
+        # 3. Saring lokal
         lolos = lokal.saring_lokal([i for i in daftar_info if not i.alasan_lokal])
-        lokal.kelompokkan(lolos)
+
+        # 3b. Sidik jari visual (CLIP, lokal) untuk semua foto yang lolos: dipakai mengelompokkan
+        #     pose yang sama, mencegah Excellent kembar, dan sebagai data selera visual.
+        belum_visual = [i for i in lolos if i.kunci not in cache.visual and i.pratinjau]
+        if belum_visual and visual.tersedia():
+            lapor.status(f"Mengenali isi {len(belum_visual)} foto…")
+            try:
+                for info, sj in zip(belum_visual, visual.sidik_jari([i.pratinjau for i in belum_visual])):
+                    if sj:
+                        cache.visual[info.kunci] = sj
+                cache.tulis()
+            except Exception as error:
+                print(f"Sidik jari visual dilewati: {error}")
+        vektor = {i.kunci: visual.ke_vektor(cache.visual[i.kunci]) for i in lolos if i.kunci in cache.visual}
+
+        # 3c. Grup foto mirip + pangkas grup panjang (wajah & ekspresi dulu, bukan sekadar ketajaman)
+        lokal.kelompokkan(lolos, vektor=vektor)
         per_grup = {}
         for info in lolos:
             per_grup.setdefault(info.grup, []).append(info)
         dikirim = []
         for anggota in per_grup.values():
-            anggota.sort(key=lambda i: i.ketajaman, reverse=True)
+            anggota = lokal.prioritas_burst(anggota)
             for info in anggota[MAKS_PER_GRUP:]:
-                info.alasan_lokal.append("burst_kurang_tajam")
+                info.alasan_lokal.append("burst_kalah_lokal")
             dikirim.extend(sorted(anggota[:MAKS_PER_GRUP], key=lambda i: i.urutan))
 
         for info in daftar_info:
@@ -486,19 +536,6 @@ class PenyortirFoto:
                 "klip_terang": round(info.klip_terang, 3), "klip_gelap": round(info.klip_gelap, 3),
                 "lokal": info.alasan_lokal, **info.wajah.untuk_fitur(),
             }
-
-        # 3b. Sidik jari visual (CLIP, lokal): dikumpulkan walau selera visual masih tidur,
-        #     agar datanya siap saat diaktifkan dan folder lama tidak perlu disimpan.
-        belum_visual = [i for i in dikirim if i.kunci not in cache.visual and i.pratinjau]
-        if belum_visual and visual.tersedia():
-            lapor.status(f"Membuat sidik jari visual {len(belum_visual)} foto (lokal)...")
-            try:
-                for info, sj in zip(belum_visual, visual.sidik_jari([i.pratinjau for i in belum_visual])):
-                    if sj:
-                        cache.visual[info.kunci] = sj
-                cache.tulis()
-            except Exception as error:
-                print(f"Sidik jari visual dilewati: {error}")
 
         # 4. Nilai dengan Gemini (lewati yang sudah ada di cache)
         belum = [i for i in dikirim if cache.ambil(i.kunci) is None]
@@ -515,12 +552,12 @@ class PenyortirFoto:
 
         for indeks, batch in enumerate(kelompok):
             if self.cancel_event.is_set():
-                lapor.selesai("Proses dihentikan. Hasil yang sudah dinilai tersimpan di cache.", False)
+                lapor.selesai("Dihentikan. Foto yang sudah dinilai aman.", False)
                 return
-            lapor.status(f"Gemini menilai momen, batch {indeks + 1} dari {len(kelompok)} ({len(batch)} foto)...")
+            lapor.status(f"Menilai foto, bagian {indeks + 1} dari {len(kelompok)}…")
             lapor.progress(25 + indeks / len(kelompok) * 60)
 
-            hasil = klien().nilai(batch)
+            hasil = klien().nilai(batch, prompt_nilai)
             for i, info in enumerate(batch):
                 if i in hasil:
                     cache.simpan(info.kunci, hasil[i])
@@ -528,7 +565,7 @@ class PenyortirFoto:
 
             hilang = [info for i, info in enumerate(batch) if i not in hasil]
             if hilang:  # model melewatkan beberapa ID: tanyakan ulang sekali, hanya yang hilang
-                ulang = klien().nilai(hilang)
+                ulang = klien().nilai(hilang, prompt_nilai)
                 for j, info in enumerate(hilang):
                     if j in ulang:
                         cache.simpan(info.kunci, ulang[j])
@@ -543,7 +580,7 @@ class PenyortirFoto:
             print(f"Model selera tidak dipakai: {error}")
             model_selera = None
         bonus_selera = selera.bonus_untuk(model_selera, cache.data, cache.fitur, cache.visual)
-        _, kandidat = tentukan_status(daftar_info, cache.data, target_excellent, bonus_selera)
+        _, kandidat = tentukan_status(daftar_info, cache.data, target_excellent, bonus_selera, vektor, konfig)
         bonus = {}
         if len(kandidat) > target_excellent:
             finalis = kandidat[:min(len(kandidat), max(2 * target_excellent, target_excellent + 4))]
@@ -555,11 +592,11 @@ class PenyortirFoto:
                 terkumpul = {}
                 for indeks, kel in enumerate(adu):
                     if self.cancel_event.is_set():
-                        lapor.selesai("Proses dihentikan. Hasil penilaian tersimpan di cache.", False)
+                        lapor.selesai("Dihentikan. Foto yang sudah dinilai aman.", False)
                         return
-                    lapor.status(f"Babak final: membandingkan kandidat terbaik ({indeks + 1}/{len(adu)})...")
+                    lapor.status(f"Membandingkan kandidat terbaik ({indeks + 1}/{len(adu)})…")
                     lapor.progress(85 + indeks / len(adu) * 10)
-                    for kunci, poin in bonus_dari_urutan(kel, klien().urutkan(kel)).items():
+                    for kunci, poin in bonus_dari_urutan(kel, klien().urutkan(kel, prompt_final)).items():
                         terkumpul.setdefault(kunci, []).append(poin)
                     self._laporan_token(gemini, hemat)
                 bonus = {k: sum(v) / len(v) for k, v in terkumpul.items()}
@@ -567,17 +604,20 @@ class PenyortirFoto:
                 cache.tulis()
 
         # 6. Keputusan global + tulis metadata
-        lapor.status("Menentukan pilihan terbaik dan menulis metadata...")
-        lapor.progress(96)
         total_bonus = {k: bonus_selera.get(k, 0) + bonus.get(k, 0) for k in set(bonus_selera) | set(bonus)}
-        status, kandidat = tentukan_status(daftar_info, cache.data, target_excellent, total_bonus)
+        status, kandidat = tentukan_status(daftar_info, cache.data, target_excellent, total_bonus, vektor, konfig)
         kunci_path = {i.path: i for i in daftar_info}
+        if hanya_belajar:
+            self._catat_pilihan_ada(folder, cache, konfig, status, kunci_path)
+            return
+        lapor.status("Menulis label ke file…")
+        lapor.progress(96)
         jumlah = {"Excellent": 0, "Good": 0, "Bad": 0}
         gagal_tulis = []
         cache.prediksi = {}
         for path, s in status.items():
             try:
-                metadata_xmp.tulis_status(path, s)
+                metadata_xmp.tulis_status(path, s, konfig=konfig)
                 jumlah[s] += 1
                 cache.prediksi[kunci_path[path].kunci] = {"file": os.path.basename(path), "status": s}
             except Exception as error:
@@ -586,12 +626,29 @@ class PenyortirFoto:
         lapor.progress(100)
 
         pesan = f"Selesai. Excellent: {jumlah['Excellent']} | Good: {jumlah['Good']} | Bad: {jumlah['Bad']}."
-        if len(kandidat) < target_excellent:
-            pesan += (f" Hanya {len(kandidat)} foto memenuhi standar Excellent (skor ≥ {SKOR_MIN_EXCELLENT});"
-                      " sisanya tidak dipaksakan.")
+        if jumlah["Excellent"] < target_excellent:
+            pesan += (f" Cuma {jumlah['Excellent']} momen berbeda yang cukup kuat untuk Excellent"
+                      "; sisanya tidak dipaksakan.")
         if model_selera:
-            jenis = "visual" if model_selera.pakai_visual else "pribadi"
-            pesan += f" Selera {jenis} aktif ({model_selera.jumlah_data} data koreksi)."
+            pesan += f" Seleramu ikut dipakai ({model_selera.jumlah_data} koreksi)."
         if gagal_tulis:
             lapor.peringatan("Sebagian metadata gagal ditulis", "\n".join(gagal_tulis[:15]))
         lapor.selesai(pesan, True)
+
+    def _catat_pilihan_ada(self, folder, cache, konfig, status, kunci_path):
+        """Tebakan aplikasi disimpan sebagai prediksi (file tidak disentuh), lalu rating
+        yang sudah ada di file dibandingkan dengannya."""
+        lapor = self.laporan
+        lapor.status("Mencatat pilihanmu…")
+        lapor.progress(98)
+        cache.prediksi = {kunci_path[path].kunci: {"file": os.path.basename(path), "status": s}
+                          for path, s in status.items()}
+        cache.tulis()
+        tercatat, diubah = belajar.kumpulkan_koreksi(folder, cache, konfig, tanpa_rating="Bad")
+        lapor.progress(100)
+        if not tercatat:
+            lapor.selesai("Tidak ada rating di folder ini. Beri rating di editor lalu simpan ke file "
+                          "(Lightroom: Ctrl+S), baru pelajari lagi.", False)
+            return
+        lapor.selesai(f"Belajar selesai: {tercatat} foto dicatat, {diubah} berbeda dari tebakan aplikasi. "
+                      "File fotomu tidak diubah.", True)

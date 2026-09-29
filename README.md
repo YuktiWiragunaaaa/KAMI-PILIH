@@ -76,9 +76,19 @@ Setelah itu, aplikasi bisa dibuka lewat `Buka Sortir AI.bat` atau dengan perinta
 1. **Tarik folder sesi** ke kotak besar di atas, atau klik kotaknya untuk memilih. Bisa juga dengan menarik satu foto dari folder itu.
 2. Atur **jumlah foto Excellent** yang diinginkan, misalnya 30.
 3. Klik **Sortir sekarang →** dan tunggu. Hasilnya langsung tampil, misalnya ★ 30 Excellent · 212 Good · 613 Bad.
-4. Klik tombol oranye **Buka di Capture One →** (atau editor pilihan Anda). Foto sudah berlabel.
+4. Klik tombol oranye **Buka di Capture One →** (atau editor pilihan Anda). Setelah sortir selesai, tombol ini ditandai riak lembut sebagai langkah berikutnya. Foto sudah berlabel.
 
-Aplikasi mengingat pilihan terakhir Anda (model, jumlah foto, folder, dan editor), jadi tidak perlu diatur ulang setiap kali.
+Aplikasi mengingat pilihan terakhir Anda (model, jumlah foto, folder, editor, dan semua pengaturan penilaian), jadi tidak perlu diatur ulang setiap kali.
+
+### Pengaturan penilaian (tombol ⚙)
+
+- **Jenis sesi**: Umum, Wedding, Prewed, Upacara / Oton, Event, atau Produk. **Setiap jenis sesi menyimpan pengaturannya sendiri**: bobot, aspek tambahan, catatan, label, dan editor yang dibuka. Contohnya, Oton bisa memakai Capture One dan Wedding memakai Lightroom. Berganti jenis sesi langsung memuat pengaturan milik jenis sesi itu. **Kembalikan ke bawaan** mengatur ulang hanya jenis sesi yang sedang aktif.
+  - **Jenis sesi buatan sendiri:** klik **+ Jenis baru**, beri nama (misalnya "Wisuda"), lalu pilih mulai dari salinan jenis sesi yang aktif atau dari Umum. Klik kanan pada chip untuk **ganti nama** atau **hapus**. Maksimal 12 jenis buatan sendiri, dan enam jenis bawaan tidak bisa dihapus. Untuk jenis buatan sendiri, "Kembalikan ke bawaan" berarti kembali ke keadaan saat jenis itu dibuat.
+- **Yang dinilai**: geser slider untuk menentukan seberapa penting momen, ekspresi, gestur, dan teknis (0 sampai 3×). Anda bisa menambah sampai 3 aspek sendiri, misalnya "warna" atau "pencahayaan".
+- **Catatan untuk AI**: pesan singkat untuk AI, misalnya "utamakan foto candid".
+- **Label di editor**: jumlah bintang (0–5) dan warna label untuk Excellent, Good, dan Bad. Contohnya, Excellent bisa ditulis sebagai 5 bintang ungu.
+
+Mengubah bobot atau label **tidak** memakai token. Menambah aspek atau mengubah catatan membuat foto dinilai ulang oleh AI pada sortir berikutnya.
 
 ---
 
@@ -102,6 +112,8 @@ Aplikasi mencatat apa yang Anda ubah dan belajar darinya. Tidak ada biaya tambah
 | 60–400 | Mulai menyesuaikan, perlahan |
 | 400 ke atas | Berpengaruh penuh |
 | Sekitar 1.000 (±3–5 sesi) | Paling stabil, dan "selera visual" bisa diaktifkan |
+
+Di Pengaturan (⚙) bagian **Selera kamu**, Anda bisa melihat progres data (%) dan seberapa cocok tebakan aplikasi dengan pilihan Anda (%). Angka kecocokan diuji pada foto yang tidak dipakai untuk belajar, jadi bukan angka hafalan.
 
 Pembelajaran selera hanya **mengubah urutan foto terbaik**. Foto yang jelas jelek tidak akan naik menjadi Excellent hanya karena selera.
 
@@ -143,6 +155,9 @@ Foto asli Anda **tidak disalin**.
 
 **Apakah foto saya diubah?**
 Tidak. Aplikasi hanya menambahkan label (rating). Gambar tidak diubah sedikit pun.
+
+**Apa itu folder `.sortir_backup`?**
+Sebelum menulis label ke file `.xmp` untuk pertama kali, aplikasi menyimpan salinan `.xmp` asli (berisi editan Capture One/Lightroom Anda) di folder tersembunyi `.sortir_backup` di dalam folder sesi. Folder ini **dihapus otomatis** saat Anda mengklik **Pelajari koreksi**, karena artinya hasil sortir sudah Anda cek di editor. File `.xmp.sortir.bak` dari versi lama otomatis dipindahkan ke folder tersembunyi ini saat folder disortir lagi.
 
 **Bagaimana memakai aplikasi di komputer lain?**
 1. Salin folder aplikasi, lalu jalankan `Buka Sortir AI.bat`. Library yang dibutuhkan dipasang otomatis.
@@ -214,6 +229,7 @@ Tes butuh `pytest`, yang tidak ikut di `requirements.txt`:
 | `sortir_ai/analisis.py` | Analisis lokal |
 | `sortir_ai/wajah.py` | Deteksi wajah MediaPipe |
 | `sortir_ai/visual.py` | Sidik jari CLIP (ONNX) dan pengunduh model |
+| `sortir_ai/konfigurasi.py` | Jenis sesi, bobot aspek, catatan AI, bintang & warna label |
 | `sortir_ai/selera.py` | Model selera sederhana dan visual |
 | `sortir_ai/belajar.py` | Pencatatan koreksi, batas data, arsip |
 | `sortir_ai/cache.py` | Cache per folder |

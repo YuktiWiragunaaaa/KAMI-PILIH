@@ -20,18 +20,18 @@ FILE_ARSIP = os.path.join(FOLDER_DATA, "data_latihan_arsip.json")  # satu slot: 
 MAKS_DATA = 5000  # foto terbaru yang disimpan; yang paling lama dibuang (~12 MB)
 
 
-def baca_status_file(path_foto):
+def baca_status_file(path_foto, konfig=None):
     """Status dari JPEG (XMP tertanam) dan sidecar .xmp. -> list status yang ada."""
     hasil = []
     if os.path.splitext(path_foto)[1].lower() in (".jpg", ".jpeg"):
         try:
             with open(path_foto, "rb") as f:
-                hasil.append(metadata.status_dari_xml(metadata.baca_xmp_jpeg(f.read(1024 * 1024))))
+                hasil.append(metadata.status_dari_xml(metadata.baca_xmp_jpeg(f.read(1024 * 1024)), konfig))
         except (OSError, ValueError):
             pass
     try:
         with open(f"{os.path.splitext(path_foto)[0]}.xmp", "r", encoding="utf-8", errors="replace") as f:
-            hasil.append(metadata.status_dari_xml(f.read()))
+            hasil.append(metadata.status_dari_xml(f.read(), konfig))
     except OSError:
         pass
     return [s for s in hasil if s]
@@ -57,17 +57,22 @@ def _simpan(data, path=None):
     os.replace(tmp, path)
 
 
-def kumpulkan_koreksi(folder, cache=None):
+def kumpulkan_koreksi(folder, cache=None, konfig=None, tanpa_rating=None):
     """Baca rating akhir di folder, simpan sebagai data latihan.
+    tanpa_rating: status untuk foto tanpa rating sama sekali (mis. "Bad" = tidak dipilih klien);
+    hanya berlaku bila setidaknya satu foto di folder punya rating.
     -> (jumlah_foto_tercatat, jumlah_yang_kamu_ubah)"""
     cache = cache or CacheHasil(folder, tanda="")
     if not cache.prediksi:
         return 0, 0
+    status_semua = {kunci: baca_status_file(os.path.join(folder, pred["file"]), konfig)
+                    for kunci, pred in cache.prediksi.items()}
+    if not any(status_semua.values()):
+        return 0, 0
     data = _muat()
     tercatat = diubah = 0
     for kunci, pred in cache.prediksi.items():
-        path = os.path.join(folder, pred["file"])
-        status_file = baca_status_file(path)
+        status_file = status_semua[kunci] or ([tanpa_rating] if tanpa_rating else [])
         if not status_file:
             continue
         # Bila JPEG dan sidecar berbeda, ambil yang tidak sama dengan prediksi (itu yang kamu ubah).

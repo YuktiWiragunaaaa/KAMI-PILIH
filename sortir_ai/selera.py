@@ -46,10 +46,10 @@ def _vektor(ai, fitur):
 
 
 def _vektor_lengkap(ai, fitur, vis, pakai_visual):
-    x = _vektor(ai, fitur)
+    x = np.asarray(_vektor(ai, fitur), dtype=np.float64)
     if pakai_visual:
         from .visual import ke_vektor
-        x = x + list(ke_vektor(vis))
+        x = np.concatenate([x, ke_vektor(vis)])  # array langsung: jauh lebih cepat daripada list 512 angka
     return x
 
 
@@ -98,7 +98,7 @@ def _siapkan_data(data, pakai_visual):
     if not y:
         return None
     w = 0.5 ** (np.array(umur) / WAKTU_PARUH_HARI)
-    return np.array(X), np.array(y), w
+    return np.stack(X), np.array(y), w
 
 
 def _latih_array(X, y, w, pakai_visual):
@@ -132,6 +132,36 @@ def _galat_cv(X, y, w, pakai_visual, lipatan=5):
         total += float(w[uji] @ (y[uji] - tebak) ** 2)
         bobot += float(w[uji].sum())
     return total / bobot
+
+
+def _kecocokan_cv(X, y, w, pakai_visual, lipatan=5):
+    """Persentase foto yang tebakan statusnya (dibulatkan) sama dengan keputusanmu, diuji pada
+    foto yang tidak dipakai melatih (validasi silang). Koreksi terbaru lebih berbobot."""
+    idx = np.random.default_rng(7).permutation(len(y))
+    benar = total = 0.0
+    for k in range(lipatan):
+        uji = idx[k::lipatan]
+        latih_ = np.setdiff1d(idx, uji)
+        m = _latih_array(X[latih_], y[latih_], w[latih_], pakai_visual)
+        tebak = ((X[uji] - m.rata) / m.skala) @ m.bobot + float(w[latih_] @ y[latih_] / w[latih_].sum())
+        benar += float(w[uji] @ (np.clip(np.rint(tebak), 0, 2) == y[uji]))
+        total += float(w[uji].sum())
+    return round(100 * benar / total) if total else None
+
+
+def laporan(data=None):
+    """Ringkasan untuk UI: jumlah data, progres (%) menuju aktif, dan kecocokan (%) tiap model."""
+    data = belajar._muat() if data is None else data
+    hasil = {}
+    for nama, pakai_visual, minimum in (("dasar", False, MIN_DATA), ("visual", True, MIN_DATA_VISUAL)):
+        siap = _siapkan_data(data, pakai_visual)
+        jumlah = 0 if siap is None else len(siap[1])
+        kecocokan = None
+        if jumlah >= minimum and len(set(siap[1])) >= 2:
+            kecocokan = _kecocokan_cv(*siap, pakai_visual=pakai_visual)
+        hasil[nama] = {"jumlah": jumlah, "minimum": minimum,
+                       "progres": min(100, round(100 * jumlah / minimum)), "kecocokan": kecocokan}
+    return hasil
 
 
 def uji_visual(data=None):

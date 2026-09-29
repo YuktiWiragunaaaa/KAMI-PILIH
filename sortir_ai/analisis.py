@@ -190,9 +190,20 @@ def jarak_hash(a, b):
     return (a ^ b).bit_count()
 
 
-def kelompokkan(daftar, jeda_detik=2.5, batas_hash=14):
-    """Grup burst/frame mirip: foto berurutan (waktu EXIF atau urutan nama) yang
-    diambil berdekatan DAN tampak mirip menurut dHash."""
+BATAS_CLIP = 0.92      # kemiripan sidik jari CLIP untuk "pose/momen yang sama" (dikalibrasi pada sesi nyata)
+JENDELA_CLIP = 30.0    # detik; satu pose berpose biasanya diambil berulang dalam rentang ini
+GRUP_DITINJAU = 6      # grup terakhir yang dibandingkan (fotografer bisa bergantian antar-angle)
+
+
+def kelompokkan(daftar, jeda_detik=2.5, batas_hash=14, vektor=None):
+    """Grup burst/frame mirip.
+
+    Dengan `vektor` ({kunci: sidik jari CLIP}): foto masuk ke grup (dari beberapa grup terakhir)
+    yang anggotanya paling mirip isinya, selama masih dalam JENDELA_CLIP detik. Menangkap pose
+    yang diulang beberapa detik dan angle yang bergantian.
+    Tanpa `vektor`: foto berurutan yang berdekatan waktunya DAN mirip menurut dHash."""
+    if vektor and all(i.kunci in vektor for i in daftar):
+        return _kelompokkan_clip(daftar, vektor)
     urut = sorted(daftar, key=lambda i: (i.waktu is None, i.waktu or 0, i.urutan))
     grup = -1
     sebelumnya = None
@@ -207,6 +218,48 @@ def kelompokkan(daftar, jeda_detik=2.5, batas_hash=14):
         info.grup = grup
         sebelumnya = info
     return urut
+
+
+def _berdekatan(a, b, jendela):
+    if a.waktu is not None and b.waktu is not None:
+        return abs(a.waktu - b.waktu) <= jendela
+    return abs(a.urutan - b.urutan) <= 10  # tanpa EXIF: pakai urutan nama file
+
+
+def _kelompokkan_clip(daftar, vektor):
+    urut = sorted(daftar, key=lambda i: (i.waktu is None, i.waktu or 0, i.urutan))
+    grup = []  # list of list InfoFoto
+    for info in urut:
+        v = vektor[info.kunci]
+        terbaik, sim = None, -1.0
+        for anggota in grup[-GRUP_DITINJAU:]:
+            if not _berdekatan(info, anggota[-1], JENDELA_CLIP):
+                continue
+            c = max(float(v @ vektor[a.kunci]) for a in anggota)
+            if c > sim:
+                terbaik, sim = anggota, c
+        if terbaik is not None and sim >= BATAS_CLIP:
+            terbaik.append(info)
+        else:
+            grup.append([info])
+    for nomor, anggota in enumerate(grup):
+        for info in anggota:
+            info.grup = nomor
+    return urut
+
+
+def prioritas_burst(anggota):
+    """Urutan frame dalam grup untuk dipangkas SEBELUM AI: wajah yang pasti bermasalah di
+    belakang, lalu yang jauh lebih buram dari saudaranya, baru senyum dan ketajaman.
+    Jadi tawa lepas yang sedikit kurang tajam tidak terbuang hanya karena ketajaman."""
+    tertajam = max((i.ketajaman for i in anggota), default=0.0) or 1.0
+    return sorted(anggota, key=lambda i: (
+        i.wajah.terpejam > 0,
+        i.wajah.mulut_canggung > 0,
+        i.ketajaman < 0.6 * tertajam,
+        -i.wajah.senyum,
+        -i.ketajaman,
+    ))
 
 
 def saring_lokal(daftar):

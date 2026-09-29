@@ -47,6 +47,7 @@ class CacheHasil:
             "skor": nilai.skor, "momen": nilai.momen, "ekspresi": nilai.ekspresi,
             "gestur": nilai.gestur, "teknis": nilai.teknis,
             "cacat": nilai.cacat, "terbaik": nilai.terbaik_di_grup,
+            "tambahan": {t.nama: t.nilai for t in getattr(nilai, "tambahan", None) or []},
         }
 
     def tulis(self):

@@ -79,7 +79,7 @@ def test_xmp_gabung_tidak_menghapus_data_lama(tmp_path):
     baru = (tmp_path / "x.xmp").read_text(encoding="utf-8")
     assert 'crs:Exposure2012="+0.50"' in baru
     assert metadata_xmp.status_dari_xml(baru) == "Excellent"
-    assert (tmp_path / "x.xmp.sortir.bak").exists()
+    assert (tmp_path / metadata_xmp.FOLDER_CADANGAN / "x.xmp").read_text(encoding="utf-8") == lama
     metadata_xmp.tulis_status(str(foto), "Bad")  # jalan ulang: ganti, tidak dobel
     baru = (tmp_path / "x.xmp").read_text(encoding="utf-8")
     assert baru.count("xmp:Rating") == 1 and metadata_xmp.status_dari_xml(baru) == "Bad"
@@ -174,7 +174,7 @@ class GeminiTiruan:
     def __init__(self, api_key, nama_model, cancel_event):
         self.token = {"input": 0, "output": 0, "thinking": 0, "panggilan": 0}
 
-    def nilai(self, batch):
+    def nilai(self, batch, prompt=None):
         GeminiTiruan.panggilan += 1
         self.token["panggilan"] += 1
         # Lewatkan ID terakhir di panggilan pertama untuk menguji tanya-ulang.
@@ -182,7 +182,7 @@ class GeminiTiruan:
         return {i: core.NilaiFoto(id=i, momen=8, ekspresi=8, gestur=7, teknis=8,
                                   skor=90 - i * 5, terbaik_di_grup=True) for i in ids}
 
-    def urutkan(self, kelompok):
+    def urutkan(self, kelompok, prompt=None):
         GeminiTiruan.adu += 1
         # Babak final membalik urutan skor: foto dengan nama terakhir dianggap momen terkuat.
         return sorted(range(len(kelompok)), key=lambda i: kelompok[i].nama, reverse=True)
@@ -193,6 +193,9 @@ def test_pipeline_ujung_ke_ujung_dengan_cache_dan_belajar(folder, monkeypatch, t
     monkeypatch.setattr(belajar, "FOLDER_DATA", str(data_dir))
     monkeypatch.setattr(belajar, "FILE_DATA", str(data_dir / "data_latihan.json"))
     monkeypatch.setattr(core, "KlienGemini", GeminiTiruan)
+    # Gambar uji berupa mozaik acak yang bagi CLIP tampak "sama"; uji jalur dHash di sini,
+    # jalur CLIP diuji terpisah dengan vektor terkendali.
+    monkeypatch.setattr(core.visual, "tersedia", lambda: False)
     GeminiTiruan.panggilan = GeminiTiruan.adu = 0
     hasil = {}
     selesai = threading.Event()
@@ -231,6 +234,14 @@ def test_pipeline_ujung_ke_ujung_dengan_cache_dan_belajar(folder, monkeypatch, t
     # Jalan ulang: semua dari cache (termasuk babak final), 0 panggilan API.
     jalankan()
     assert GeminiTiruan.panggilan == 2 and GeminiTiruan.adu == 2
+
+    # Mode belajar: rating yang sudah ada (pilihan klien) tidak ditimpa, hanya dicatat.
+    metadata_xmp.tulis_status(str(folder / "a_tajam.jpg"), "Excellent")
+    selesai.clear()
+    p.mulai(str(folder), "kunci", 2, "gemini-x-flash", hanya_belajar=True)
+    assert selesai.wait(120) and hasil["sukses"], hasil["pesan"]
+    assert hasil["pesan"].startswith("Belajar selesai: 6 foto dicatat, 1 berbeda")
+    assert baca_status()["a_tajam.jpg"] == "Excellent"
 
 
 def test_selera_belajar_prioritas_momen():
@@ -332,3 +343,190 @@ def test_unduh_model_terputus_ditolak(tmp_path, monkeypatch):
         visual.unduh_model()
     assert not os.listdir(tmp_path)  # tidak ada file setengah jadi
     assert not visual.model_ada()
+
+
+
+def _foto_v(nama, waktu, vektor_dict, v, **wajah):
+    info = lokal.InfoFoto(path=nama, nama=nama, kunci=nama, waktu=waktu, ketajaman=wajah.pop("tajam", 100))
+    for k, nilai in wajah.items():
+        setattr(info.wajah, k, nilai)
+    vektor_dict[nama] = np.asarray(v, dtype=np.float32) / np.linalg.norm(v)
+    return info
+
+
+def test_kelompok_clip_pose_berulang_dan_angle_bergantian():
+    V = {}
+    pose_a, pose_b, lain = [1, 0, 0], [0, 1, 0], [0, 0, 1]
+    foto = [
+        _foto_v("a1", 0, V, pose_a), _foto_v("b1", 3, V, pose_b),     # fotografer bergantian angle
+        _foto_v("a2", 8, V, pose_a), _foto_v("b2", 12, V, pose_b),
+        _foto_v("a3", 20, V, [1, 0.05, 0]),                          # pose A diulang 20 detik kemudian
+        _foto_v("c1", 25, V, lain),
+        _foto_v("a4", 200, V, pose_a),                               # pose A lagi, tapi 3 menit kemudian
+    ]
+    lokal.kelompokkan(foto, vektor=V)
+    grup = {i.nama: i.grup for i in foto}
+    assert grup["a1"] == grup["a2"] == grup["a3"]
+    assert grup["b1"] == grup["b2"] != grup["a1"]
+    assert grup["c1"] not in (grup["a1"], grup["b1"])
+    assert grup["a4"] != grup["a1"]  # di luar jendela waktu: grup baru
+    # Tanpa sidik jari lengkap: kembali ke cara lama (dHash), tidak error.
+    lokal.kelompokkan(foto, vektor={"a1": V["a1"]})
+
+
+def test_excellent_tidak_boleh_kembar():
+    V = {}
+    a = _foto_v("a", 0, V, [1, 0, 0])
+    a_kembar = _foto_v("a_kembar", 600, V, [1, 0.02, 0])  # pose sama, 10 menit kemudian (beda grup)
+    b = _foto_v("b", 900, V, [0, 1, 0])
+    for i, g in zip((a, a_kembar, b), (0, 1, 2)):
+        i.grup = g
+    nilai = {"a": {"skor": 90, "cacat": [], "terbaik": True},
+             "a_kembar": {"skor": 88, "cacat": [], "terbaik": True},
+             "b": {"skor": 75, "cacat": [], "terbaik": True}}
+    status, _ = core.tentukan_status([a, a_kembar, b], nilai, target_excellent=2, vektor=V)
+    assert status["a"] == "Excellent" and status["b"] == "Excellent" and status["a_kembar"] == "Good"
+    status, _ = core.tentukan_status([a, a_kembar, b], nilai, target_excellent=2)  # tanpa CLIP: perilaku lama
+    assert status["a_kembar"] == "Excellent"
+
+
+def test_prioritas_burst_ekspresi_sebelum_ketajaman():
+    V = {}
+    tajam_terpejam = _foto_v("tajam_terpejam", 0, V, [1, 0], tajam=200, terpejam=1)
+    tawa_agak_lembut = _foto_v("tawa", 1, V, [1, 0], tajam=150, senyum=2)
+    datar_tajam = _foto_v("datar", 2, V, [1, 0], tajam=190)
+    buram = _foto_v("buram", 3, V, [1, 0], tajam=60, senyum=2)
+    urut = [i.nama for i in lokal.prioritas_burst([tajam_terpejam, tawa_agak_lembut, datar_tajam, buram])]
+    assert urut == ["tawa", "datar", "buram", "tajam_terpejam"]
+
+
+def test_cadangan_xmp_tersembunyi_lalu_dibersihkan(tmp_path):
+    raw = tmp_path / "IMG_1.RAF"
+    raw.write_bytes(b"raw")
+    asli = '<x:xmpmeta><rdf:RDF><rdf:Description crs:Crop="1"/></rdf:RDF></x:xmpmeta>'
+    (tmp_path / "IMG_1.xmp").write_text(asli, encoding="utf-8")
+    (tmp_path / "IMG_2.xmp.sortir.bak").write_text("lama", encoding="utf-8")  # sisa versi lama
+
+    metadata_xmp.tulis_sidecar(str(raw), "Excellent")
+    metadata_xmp.tulis_sidecar(str(raw), "Good")  # tulisan kedua tidak menimpa cadangan asli
+    cadangan = tmp_path / metadata_xmp.FOLDER_CADANGAN
+    assert (cadangan / "IMG_1.xmp").read_text(encoding="utf-8") == asli
+    assert 'crs:Crop="1"' in (tmp_path / "IMG_1.xmp").read_text(encoding="utf-8")  # editan lama utuh
+
+    assert metadata_xmp.rapikan_cadangan_lama(str(tmp_path)) == 1
+    assert not list(tmp_path.glob("*.sortir.bak")) and (cadangan / "IMG_2.xmp").exists()
+    if os.name == "nt":
+        import ctypes
+        assert ctypes.windll.kernel32.GetFileAttributesW(str(cadangan)) & 0x02  # tersembunyi
+
+    assert metadata_xmp.hapus_cadangan(str(tmp_path)) == 2
+    assert not cadangan.exists() and (tmp_path / "IMG_1.xmp").exists()
+
+
+def test_konfigurasi_bobot_rating_dan_prompt(tmp_path):
+    from sortir_ai.konfigurasi import Konfigurasi
+    k = Konfigurasi()
+    n = {"skor": 50, "momen": 10, "ekspresi": 2, "gestur": 2, "teknis": 2, "tambahan": {"warna": 9}}
+    assert k.skor(n) == 50 and k.tanda_prompt() == ""  # bawaan: skor Gemini apa adanya, cache lama tetap berlaku
+
+    k.bobot["momen"] = 3.0  # momen jauh lebih penting: foto bermomen kuat naik
+    assert k.skor(n) > 50
+    k.bobot["momen"] = 0.2  # momen hampir diabaikan: turun
+    assert k.skor(n) < 50
+    k.aspek_tambahan = [{"nama": "warna", "bobot": 2.0}]
+    assert k.tanda_prompt() != "" and '"warna"' in k.tambahan_prompt()
+
+    k.pakai_preset("Produk")
+    assert k.bobot["teknis"] == 2.0 and "produk" in k.catatan.lower()
+
+    # Rating custom: Excellent = 5 bintang ungu, Good = 3, Bad = 1.
+    k.rating = {"Excellent": {"bintang": 5, "warna": "Purple"}, "Good": {"bintang": 3, "warna": ""},
+                "Bad": {"bintang": 1, "warna": ""}}
+    foto = tmp_path / "x.arw"
+    foto.write_bytes(b"raw")
+    metadata_xmp.tulis_status(str(foto), "Excellent", konfig=k)
+    xml = (tmp_path / "x.xmp").read_text(encoding="utf-8")
+    assert 'xmp:Rating="5"' in xml and 'xmp:Label="Purple"' in xml
+    assert metadata_xmp.status_dari_xml(xml, k) == "Excellent"
+    assert k.status_dari_rating(4) == "Excellent" and k.status_dari_rating(2) == "Good"  # seri -> lebih tinggi
+    assert k.status_dari_rating(0) == "Bad"
+
+    # Simpan/muat, termasuk nilai liar yang harus dijinakkan.
+    k.editor = "Capture One"
+    k2 = Konfigurasi.dari_json(k.ke_json())
+    assert k2.preset == "Produk" and k2.rating["Excellent"]["bintang"] == 5 and k2.editor == "Capture One"
+    # Profil per jenis sesi: kembali ke Umum memulihkan pengaturan Umum yang tadi (aspek warna, momen 0.2).
+    k2.pakai_preset("Umum")
+    assert k2.aspek_tambahan[0]["nama"] == "warna" and k2.bobot["momen"] == 0.2
+    assert k2.rating["Excellent"]["bintang"] == 3 and k2.editor == ""
+    k2.pakai_preset("Produk")
+    assert k2.editor == "Capture One" and k2.rating["Excellent"]["warna"] == "Purple"
+    assert not k2.sama_dengan_bawaan()
+    k2.kembalikan_bawaan()
+    assert k2.sama_dengan_bawaan() and k2.rating["Excellent"]["bintang"] == 3
+    k2.pakai_preset("Umum")
+    assert k2.aspek_tambahan  # mengembalikan Produk tidak menyentuh profil Umum
+    liar = Konfigurasi.dari_json('{"bobot": {"momen": 99}, "rating": {"Good": {"bintang": 9, "warna": "Pink"}},'
+                                 ' "aspek_tambahan": [{"nama": " "}, {"nama": "a"}, {"nama": "b"}, {"nama": "c"}, {"nama": "d"}]}')
+    assert liar.bobot["momen"] == 3.0 and liar.rating["Good"] == {"bintang": 5, "warna": ""}
+    assert [t["nama"] for t in liar.aspek_tambahan] == ["a", "b", "c"]
+    assert Konfigurasi.dari_json("bukan json").preset == "Umum"
+
+
+def test_laporan_selera_progres_dan_kecocokan():
+    from sortir_ai import selera
+    rng = np.random.default_rng(3)
+    kosong = selera.laporan({})
+    assert kosong["dasar"]["progres"] == 0 and kosong["dasar"]["kecocokan"] is None
+    data = _data_sintetis(300, rng)  # selera "momen" yang konsisten
+    lap = selera.laporan(data)
+    assert lap["dasar"]["progres"] == 100 and lap["dasar"]["kecocokan"] >= 70
+    assert lap["visual"]["progres"] == 30 and lap["visual"]["kecocokan"] is None  # 300/1000
+
+
+def test_jenis_sesi_buatan_sendiri():
+    from sortir_ai.konfigurasi import Konfigurasi, MAKS_JENIS_KUSTOM
+    k = Konfigurasi()
+    k.pakai_preset("Wedding")
+    k.bobot["teknis"] = 2.5
+    k.editor = "Capture One"
+    assert k.tambah_jenis("Wisuda") == "Wisuda"          # salinan dari Wedding yang sedang aktif
+    assert k.preset == "Wisuda" and k.bobot["teknis"] == 2.5 and k.editor == "Capture One"
+    k.bobot["momen"] = 0.5
+    assert not k.sama_dengan_bawaan()
+    k.kembalikan_bawaan()                                 # kembali ke keadaan saat dibuat
+    assert k.bobot["momen"] == 1.5 and k.bobot["teknis"] == 2.5
+
+    k.tambah_jenis("Maternity", salin_aktif=False)        # mulai dari Umum
+    assert k.bobot == {"momen": 1.0, "ekspresi": 1.0, "gestur": 1.0, "teknis": 1.0}
+    for nama in ("wisuda", "Umum", "", "x" * 30):
+        with pytest.raises(ValueError):
+            k.tambah_jenis(nama)                          # kembar (tak peka huruf), bawaan, kosong, kepanjangan
+
+    k.ganti_nama_jenis("Wisuda", "Wisuda UNUD")
+    assert k.daftar_jenis()[-2:] == ["Wisuda UNUD", "Maternity"]  # urutan tetap
+    # Jenis bawaan: hanya nama tampil yang berubah, kunci (dan bobot bawaannya) tetap.
+    assert k.ganti_nama_jenis("Wedding", "Nikahan") == "Wedding"
+    assert k.nama_tampil("Wedding") == "Nikahan" and "Wedding" in k.daftar_jenis()
+    for nama in ("nikahan", "Maternity"):
+        with pytest.raises(ValueError):
+            k.ganti_nama_jenis("Prewed", nama)            # bentrok dengan nama tampil / jenis lain
+    with pytest.raises(ValueError):
+        k.tambah_jenis("Wedding")                         # kunci bawaan tetap tidak boleh dipakai
+    with pytest.raises(ValueError):
+        k.hapus_jenis("Umum")
+
+    k2 = Konfigurasi.dari_json(k.ke_json())               # tersimpan dan termuat utuh
+    assert k2.preset == "Maternity" and "Wisuda UNUD" in k2.kustom
+    assert k2.nama_tampil("Wedding") == "Nikahan"
+    k2.ganti_nama_jenis("Wedding", "Wedding")             # kembalikan nama asli
+    assert k2.nama_tampil("Wedding") == "Wedding" and not k2.alias
+    k2.pakai_preset("Wisuda UNUD")
+    assert k2.bobot["teknis"] == 2.5 and k2.editor == "Capture One"
+    k2.hapus_jenis("Wisuda UNUD")                         # menghapus jenis aktif -> kembali ke Umum
+    assert k2.preset == "Umum" and "Wisuda UNUD" not in k2.profil
+
+    for i in range(MAKS_JENIS_KUSTOM - len(k2.kustom)):
+        k2.tambah_jenis(f"Jenis {i}")
+    with pytest.raises(ValueError):
+        k2.tambah_jenis("Satu lagi")
